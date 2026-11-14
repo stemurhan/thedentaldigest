@@ -18,14 +18,48 @@
   if (!I18N[lang]) lang = 'tr';
   let slip = LS.get('slip', []);          // [{m, k}]
   let stake = LS.get('stake', MIN_STAKE);
+  // sunucu (Supabase) ayarliysa gercek uyelik; degilse demo (bu cihazda)
+  const CFG = window.AHAL_CFG || {};
+  const SB = CFG.supabaseUrl && CFG.supabaseKey && window.supabase ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey) : null;
+  const EMAIL_DOMAIN = 'uye.thedentaldigest.org';     // kullanici adi -> giris kimligi (e-posta gonderilmez)
   let users = LS.get('users', {});
-  let user = LS.get('user', null);
-  if (user && !users[user]) user = null;
-  let coupons = [], balance = 0, authErr = { login: '', reg: '' };
+  let user = SB ? null : LS.get('user', null);
+  if (!SB && user && !users[user]) user = null;
+  let coupons = [], balance = 0, authErr = { login: '', reg: '' }, profile = null, busy = false;
   const ukey = k => k + '_' + user;
-  function loadUser() { coupons = user ? LS.get(ukey('coupons'), []) : []; balance = user ? LS.get(ukey('balance'), START_BAL) : 0; }
-  const saveUser = () => { if (user) { LS.set(ukey('coupons'), coupons); LS.set(ukey('balance'), balance); } };
+  function loadUser() { if (SB) return; coupons = user ? LS.get(ukey('coupons'), []) : []; balance = user ? LS.get(ukey('balance'), START_BAL) : 0; }
+  const saveUser = () => { if (!SB && user) { LS.set(ukey('coupons'), coupons); LS.set(ukey('balance'), balance); } };
   loadUser();
+  const uinfo = () => (SB ? (profile ? { name: profile.display_name, phone: profile.phone, since: Date.parse(profile.created_at) } : null) : users[user]);
+  const sbEmail = u => u.trim().toLowerCase() + '@' + EMAIL_DOMAIN;
+  const mapCoupon = r => ({ id: r.id, ts: Date.parse(r.created_at), stake: +r.stake, odds: +r.odds, win: +r.win, status: r.status, sels: r.sels || [] });
+  function sbErr(e) {
+    const m = String((e && (e.message || e.error_description)) || e || '').toLowerCase();
+    if (/already|registered|exists/.test(m)) return t('e_taken');
+    if (/invalid login|invalid credentials|email not confirmed/.test(m)) return t(/confirm/.test(m) ? 'e_confirm' : 'e_login');
+    if (/balance/.test(m)) return t('no_balance');
+    if (/started/.test(m)) return t('started');
+    if (/stake/.test(m)) return t('min_stake');
+    if (/password/.test(m)) return t('e_pass');
+    if (/fetch|network|failed/.test(m)) return t('e_net');
+    return t('e_server');
+  }
+  async function sbLoad() {
+    const { data } = await SB.auth.getSession();
+    const ses = data && data.session;
+    if (!ses) { user = null; profile = null; coupons = []; balance = 0; return; }
+    const [pr, cp] = await Promise.all([
+      SB.from('profiles').select('*').eq('id', ses.user.id).single(),
+      SB.from('coupons').select('*').order('created_at', { ascending: false }).limit(100)
+    ]);
+    if (pr.error || !pr.data) { user = null; profile = null; return; }
+    profile = pr.data; user = profile.username; balance = +profile.balance;
+    coupons = (cp.data || []).map(mapCoupon);
+    const srv = Array.isArray(profile.favs) ? profile.favs : [];
+    const merged = new Set(srv.concat([...FAV]));
+    if (merged.size !== srv.length) SB.from('profiles').update({ favs: [...merged] }).eq('id', profile.id).then(() => { });
+    FAV = merged; LS.set('fav', [...FAV]);
+  }
   const flt = { lg: 'all', day: null, q: '', alim: 48, lvall: false };
   let FAV = new Set(LS.get('fav', []));
   const isFavM = m => FAV.has(m.h) || FAV.has(m.a);
@@ -452,17 +486,33 @@
     const u = f.username.value.trim(), pw = f.password.value;
     let e = '';
     if (!/^[A-Za-z0-9_]{3,20}$/.test(u)) e = t('e_user');
-    else if (users[u.toLowerCase()]) e = t('e_taken');
+    else if (!SB && users[u.toLowerCase()]) e = t('e_taken');
     else if (pw.length < 6) e = t('e_pass');
     else if (pw !== f.password2.value) e = t('e_match');
     else if (!f.age.checked) e = t('e_age');
     if (e) { authErr.reg = e; return render(); }
+    if (SB) {
+      if (busy) return; busy = true;
+      const { data, error } = await SB.auth.signUp({ email: sbEmail(u), password: pw, options: { data: { username: u.toLowerCase(), display_name: u, phone: f.phone.value.trim() } } });
+      busy = false;
+      if (error) { authErr.reg = sbErr(error); return render(); }
+      if (!data.session) { authErr.reg = t('e_confirm'); return render(); }
+      await sbLoad(); authErr = { login: '', reg: '' }; settle(); toast(fmt(t('welcome'), { n: u })); return render();
+    }
     const salt = Math.random().toString(36).slice(2);
     users[u.toLowerCase()] = { name: u, phone: f.phone.value.trim(), salt, hash: await sha(salt + pw), since: Date.now() };
     LS.set('users', users); user = u.toLowerCase(); LS.set('user', user); authErr = { login: '', reg: '' };
     loadUser(); saveUser(); toast(fmt(t('welcome'), { n: u })); render();
   }
   async function doLogin(f) {
+    if (SB) {
+      if (busy) return; busy = true;
+      const { error } = await SB.auth.signInWithPassword({ email: sbEmail(f.username.value), password: f.password.value });
+      busy = false;
+      if (error) { authErr.login = sbErr(error); return render(); }
+      await sbLoad(); authErr = { login: '', reg: '' }; settle();
+      toast(fmt(t('welcome'), { n: profile ? profile.display_name : '' })); return render();
+    }
     const u = users[f.username.value.trim().toLowerCase()];
     if (!u || u.hash !== await sha(u.salt + f.password.value)) { authErr.login = t('e_login'); return render(); }
     user = f.username.value.trim().toLowerCase(); LS.set('user', user); authErr = { login: '', reg: '' };
@@ -482,9 +532,9 @@
           <label>${t('password2')}<input name="password2" type="password" autocomplete="new-password" required></label>
           <label class="chk"><input name="age" type="checkbox"> <span>${t('age_ok')}</span></label>
           <div class="err" role="alert">${esc(authErr.reg)}</div><button class="btn" type="submit">${t('register')}</button></form>
-      </div>${favCard()}${notifCard()}<p class="note">${t('demo_acc')}</p>`;
+      </div>${favCard()}${notifCard()}<p class="note">${t(SB ? 'srv_acc' : 'demo_acc')}</p>`;
     }
-    const u = users[user], n = k => coupons.filter(c => c.status === k).length;
+    const u = uinfo() || { name: user, since: Date.now() }, n = k => coupons.filter(c => dispStatus(c) === k || (k === 'won' && dispStatus(c) === 'won_wait')).length;
     return `<div class="pagehead"><h1>${t('profile')}</h1></div>
       <div class="card sec" style="margin-top:0"><div class="prof"><span class="av big">${esc(u.name.slice(0, 1).toUpperCase())}</span>
         <div><b>${esc(u.name)}</b><small class="mut">${u.phone ? esc(u.phone) + ' · ' : ''}${t('member_since')}: ${shortDate(u.since)}.${new Date(u.since).getFullYear()}</small></div>
@@ -496,7 +546,7 @@
           <div class="kpi"><small>${t('lost')}</small><b style="color:var(--red)">${n('lost')}</b></div>
           <div class="kpi"><small>${t('pending')}</small><b>${n('pending')}</b></div></div>
         <div class="prof-a"><a class="btn" href="#/kuponlarim">${t('mycoupons')}</a><button class="btn ghost" data-act="resetbal">${t('reset_balance')}</button></div>
-      </div>${favCard()}${notifCard()}<p class="note">${t('demo_acc')}</p>`;
+      </div>${favCard()}${notifCard()}<p class="note">${t(SB ? 'srv_acc' : 'demo_acc')}</p>`;
   }
 
   // ---------- bulten ----------
@@ -875,7 +925,9 @@
     LS.set('slip', slip);
     syncObs(); renderSlip();
   }
-  function play() {
+  let playing = false;
+  async function play() {
+    if (playing) return;
     if (!user) { document.body.classList.remove('slipopen'); toast(t('login_first')); location.hash = '#/profil'; return; }
     if (cleanSlip()) { slipErr = t('started'); syncObs(); return renderSlip(); }
     const st = Math.round((parseFloat(stake) || 0) * 100) / 100;
@@ -886,17 +938,38 @@
     if (slipErr || !slip.length) return renderSlip();
     const tot = Math.round(totalOdds() * 100) / 100;
     const c = {
-      id: 'A' + Date.now().toString().slice(-9), ts: Date.now(), stake: st, odds: tot,
+      id: 'A' + Date.now().toString().slice(-9) + String(10 + Math.floor(Math.random() * 90)), ts: Date.now(), stake: st, odds: tot,
       win: Math.min(Math.round(st * tot * 100) / 100, MAX_WIN), status: 'pending',
-      sels: slip.map(s => { const m = MATCH[s.m]; return { m: s.m, k: s.k, o: m.o[s.k], hi: m.h, ai: m.a, h: tn(m.h), a: tn(m.a), d: m.d, ln: m.line }; })
+      sels: slip.map(s => { const m = MATCH[s.m]; return { m: s.m, k: s.k, o: m.o[s.k], hi: m.h, ai: m.a, h: tn(m.h), a: tn(m.a), d: m.d, ln: m.line, lg: m.lg || 'nba' }; })
     };
+    if (SB) {
+      playing = true; slipErr = ''; renderSlip();
+      const { data, error } = await SB.rpc('place_coupon', { p_id: c.id, p_stake: st, p_sels: c.sels });
+      playing = false;
+      if (error) { slipErr = sbErr(error); return renderSlip(); }
+      balance = +data; c.win = Math.min(Math.round(st * c.odds * 100) / 100, MAX_WIN);
+      coupons.unshift(c); slip = []; LS.set('slip', slip);
+      document.body.classList.remove('slipopen');
+      toast(`${t('played')} · ${c.id}`);
+      if (location.hash === '#/kuponlarim') render(); else location.hash = '#/kuponlarim';
+      return;
+    }
     coupons.unshift(c); balance = Math.round((balance - st) * 100) / 100; slip = [];
     saveUser(); LS.set('slip', slip);
     document.body.classList.remove('slipopen');
     toast(`${t('played')} · ${c.id}`);
     if (location.hash === '#/kuponlarim') render(); else location.hash = '#/kuponlarim';
   }
+  function dispStatus(c) {
+    if (c.status !== 'pending') return c.status;
+    if (c.sels.some(x => x.ok === false)) return 'lost';
+    return c.sels.length && c.sels.every(x => x.ok === true) ? 'won_wait' : 'pending';
+  }
   function settle() {
+    if (SB) {
+      coupons.forEach(c => c.sels.forEach(x => { const r = RES[x.m]; if (r && x.ok === undefined) { x.res = r.hs + '-' + r.as; x.ok = wins(x.k, r.hs, r.as, x.ln); } }));
+      return;
+    }
     let ch = false;
     coupons.forEach(c => {
       if (c.status !== 'pending') return;
@@ -920,7 +993,7 @@
       <button class="chip" style="margin-left:auto" data-act="resetbal">${t('reset_balance')}</button></div></div>`;
     if (!coupons.length) return html + `<div class="card empty">${t('no_coupons')}</div>`;
     return html + coupons.map(c => `<div class="card cpn">
-      <div class="cpn-h"><b>${t('coupon_no')}: ${esc(c.id)}</b>${shareBtn('share-cpn', `data-cid="${esc(c.id)}"`)}<span class="st ${c.status}">${t(c.status)}</span><span class="mut num" style="margin-left:auto">${shortDate(c.ts)} ${timeOf(c.ts)}</span></div>
+      <div class="cpn-h"><b>${t('coupon_no')}: ${esc(c.id)}</b>${shareBtn('share-cpn', `data-cid="${esc(c.id)}"`)}<span class="st ${dispStatus(c) === 'won_wait' ? 'won' : dispStatus(c)}">${t(dispStatus(c))}</span><span class="mut num" style="margin-left:auto">${shortDate(c.ts)} ${timeOf(c.ts)}</span></div>
       ${c.sels.map(s => `<div class="row"><span class="rl">${pair(s.hi, s.ai, nm(s, 'h'), nm(s, 'a'))}<small class="mut">${esc(mkLabel(s.k, null, s.ln))} · ${shortDate(s.d)} ${timeOf(s.d)}${s.res ? ' · ' + esc(s.res) : ''}</small></span><span class="r ${s.ok === true ? 'ok' : s.ok === false ? 'no' : ''}">${s.o.toFixed(2)}</span></div>`).join('')}
       <div class="cpn-f"><span>${t('stake')}: <b>${money(c.stake)}</b></span><span>${t('total_odds')}: <b>${c.odds.toFixed(2)}</b></span><span>${t(c.status === 'won' ? 'payout' : 'max_win')}: <b>${money(c.win)}</b></span></div>
     </div>`).join('');
@@ -1093,6 +1166,7 @@
       const id = d.fav, on = !FAV.has(id);
       if (on) FAV.add(id); else FAV.delete(id);
       LS.set('fav', [...FAV]);
+      if (SB && profile) SB.from('profiles').update({ favs: [...FAV] }).eq('id', profile.id).then(() => { });
       if (!FAV.size && flt.lg === 'fav') flt.lg = 'all';
       toast(fmt(t(on ? 'fav_added' : 'fav_removed'), { n: tn(id) }));
       const y = scrollY; render(); scrollTo(0, y); return;
@@ -1116,8 +1190,14 @@
     }
     if (d.act === 'clear') { slip = []; LS.set('slip', slip); document.body.classList.remove('slipopen'); syncObs(); return renderSlip(); }
     if (d.act === 'close') return document.body.classList.remove('slipopen');
-    if (d.act === 'resetbal') { balance = START_BAL; saveUser(); return render(); }
-    if (d.act === 'logout') { user = null; LS.set('user', null); loadUser(); return render(); }
+    if (d.act === 'resetbal') {
+      if (SB) { SB.rpc('reset_balance').then(({ data, error }) => { if (error) toast(sbErr(error)); else balance = +data; render(); }); return; }
+      balance = START_BAL; saveUser(); return render();
+    }
+    if (d.act === 'logout') {
+      if (SB) { SB.auth.signOut().finally(() => { user = null; profile = null; coupons = []; balance = 0; render(); }); return; }
+      user = null; LS.set('user', null); loadUser(); return render();
+    }
   });
   document.addEventListener('input', e => {
     if (e.target.id === 'stake') { stake = e.target.value; LS.set('stake', parseFloat(stake) || MIN_STAKE); updWin(); }
@@ -1143,6 +1223,7 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape') document.body.classList.remove('slipopen'); });
 
   cleanSlip(); settle(); render();
+  if (SB) sbLoad().then(() => { settle(); render(); }).catch(() => { });
   (function () {   // yeni MollaMyrat kuponu haber ver (ilk ziyarette degil)
     const c = MOLLA.coupons[0]; if (!c) return;
     const seen = LS.get('mseen', null);

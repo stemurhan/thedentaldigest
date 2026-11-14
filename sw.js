@@ -1,6 +1,6 @@
 // Ahal365 servis calisani: once ag, olmazsa onbellek (bulten her zaman guncel kalsin).
-const CACHE = 'ahal365-v6';
-const SHELL = ['./', 'index.html', 'css/style.css', 'js/i18n.js', 'js/app.js', 'img/icon.svg', 'manifest.json'];
+const CACHE = 'ahal365-v7';
+const SHELL = ['./', 'index.html', 'css/style.css', 'js/config.js', 'js/i18n.js', 'js/app.js', 'img/icon.svg', 'manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
