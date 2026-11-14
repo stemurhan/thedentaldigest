@@ -462,3 +462,33 @@ b.ls i{font-style:normal;font-weight:600;font-size:10px;margin-left:3px}
 .nav{overflow-x:auto;scrollbar-width:none}
 .nav::-webkit-scrollbar{display:none}
 @media (max-width:1320px){.nav a{padding:8px 9px}.top-in{gap:12px}}
+
+/* ---------- v6: kompakt kupon (en az 10 mac ayni anda) ---------- */
+.slip .card.bs{overflow:visible}
+.slip .card.bs .sliphead{border-radius:var(--r) var(--r) 0 0;position:sticky;top:0;z-index:3}
+.sliphead .clr{margin-left:10px;font-size:12px;font-weight:600;color:var(--mut);padding:3px 8px;border-radius:7px;border:1px solid var(--line)}
+.sliphead .clr:hover{color:var(--red);border-color:var(--red)}
+.sels{max-height:none;overflow:visible}
+.sel{display:flex;align-items:center;gap:8px;padding:6px 36px 6px 10px}
+.sel .no{flex:none;width:18px;height:18px;border-radius:5px;background:var(--s3);color:var(--mut);font-size:10px;font-weight:800;display:grid;place-items:center}
+.sel .sc{min-width:0;flex:1}
+.sel .r1{display:flex;align-items:baseline;gap:8px;justify-content:space-between;font-size:12.5px;font-weight:600;line-height:1.3}
+.sel .r1 .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sel .r1 b{flex:none;color:var(--gold);font-size:13.5px;font-variant-numeric:tabular-nums}
+.sel .r2{font-size:11px;color:var(--mut);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sel .rm{top:50%;right:6px;transform:translateY(-50%);width:24px;height:24px;font-size:16px}
+.slipbody{position:sticky;bottom:0;z-index:2;background:var(--s1);border-top:1px solid var(--line);border-radius:0 0 var(--r) var(--r);padding:10px 12px 12px}
+.slipbody .quick{margin:6px 0 8px}
+.slipbody .sum{padding:2px 0}
+.slipbody .err{min-height:14px;margin:2px 0 4px}
+.tipc-r{padding:6px 12px}
+@media (max-width:860px){
+  .sels{max-height:none}
+  .sel{padding:5px 36px 5px 12px}
+  .slip .card.bs{border-radius:16px 16px 0 0}
+  .slip .card.bs .sliphead{border-radius:16px 16px 0 0}
+  .slipbody{border-radius:0;padding-bottom:calc(12px + var(--safe-b))}
+  .slipbody .slipnote{display:none}
+  .slipbody .quick button{padding:6px 0}
+  .slip{max-height:90vh}
+}

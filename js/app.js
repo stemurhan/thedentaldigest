@@ -645,11 +645,13 @@
     const n = slip.length, tot = n ? totalOdds() : 0;
     document.body.classList.toggle('hasslip', n > 0);
     $('slipbar').innerHTML = `<span class="n">${n}</span><span>${t('coupon')}</span><span class="o num">${tot.toFixed(2)}</span>`;
-    const head = `<div class="sliphead"><span>${t('coupon')}</span><span class="badge">${n}</span><span class="type">${n ? (n === 1 ? t('single') : t('combo')) : ''}</span><button class="x" data-act="close" aria-label="×">×</button></div>`;
-    if (!n) { $('slip').innerHTML = `<div class="card">${head}<div class="empty">${t('slip_empty')}</div></div>${tipCoupon()}`; return; }
-    $('slip').innerHTML = `<div class="card">${head}
-      <div class="sels">${slip.map(s => { const m = MATCH[s.m]; return `<div class="sel"><div class="t">${logo(m.h, 'sm')} ${esc(ts(m.h))} – ${esc(ts(m.a))} ${logo(m.a, 'sm')}</div>
-        <div class="k"><span>${esc(mkLabel(s.k, m))} · ${shortDate(m.d)} ${timeOf(m.d)}</span><b>${m.o[s.k].toFixed(2)}</b></div>
+    const head = `<div class="sliphead"><span>${t('coupon')}</span><span class="badge">${n}</span><span class="type">${n ? (n === 1 ? t('single') : t('combo')) : ''}</span>${n ? `<button class="clr" data-act="clear">${t('clear')}</button>` : ''}<button class="x" data-act="close" aria-label="×">×</button></div>`;
+    if (!n) { $('slip').innerHTML = `<div class="card bs">${head}<div class="empty">${t('slip_empty')}</div></div>${tipCoupon()}`; return; }
+    // kompakt satirlar: ayni anda en az 10 mac gorunur; bedel/oyna alani altta sabit kalir
+    $('slip').innerHTML = `<div class="card bs">${head}
+      <div class="sels">${slip.map((s, i) => { const m = MATCH[s.m]; return `<div class="sel"><span class="no">${i + 1}</span><div class="sc">
+        <div class="r1"><span class="t">${esc(ts(m.h))} – ${esc(ts(m.a))}</span><b>${m.o[s.k].toFixed(2)}</b></div>
+        <div class="r2">${esc(mkLabel(s.k, m))} · ${shortDate(m.d)} ${timeOf(m.d)}</div></div>
         <button class="rm" data-rm="${s.m}" aria-label="×">×</button></div>`; }).join('')}</div>
       <div class="slipbody">
         <div class="stk"><label for="stake">${t('stake')}</label><input id="stake" type="number" inputmode="decimal" min="${MIN_STAKE}" max="${MAX_STAKE}" step="1" value="${esc(stake)}"><span>${CUR}</span></div>
@@ -658,7 +660,6 @@
         <div class="sum win"><span>${t('max_win')}</span><b id="s-win"></b></div>
         <div class="err" id="s-err" role="alert">${esc(slipErr)}</div>
         <button class="btn" data-act="play">${t('play')}</button>
-        <button class="btn ghost" data-act="clear">${t('clear')}</button>
         <div class="slipnote">${t('min_stake')}</div>
       </div></div>${tipCoupon()}`;
     updWin();
