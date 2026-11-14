@@ -685,6 +685,7 @@ def localize(teams, nat_ids, team_country):
 
 # ---- MollaMyrat'in kuponu (gunluk kupon + haftalik takip) ------------------
 MOLLA = os.path.join(ROOT, "data", "molla.json")
+MOLLA_DAYS = 2                 # kupon kac gunu kapsar / kac gunde bir yenilenir
 TIP_KEYS = ["1", "X", "2", "1X", "X2", "O2.5", "U2.5", "KGV", "KGY"]
 
 
@@ -737,22 +738,51 @@ def molla(matches, done_by_id, src_team, use):
             if e and "res" not in sc:
                 sc["res"] = [e["hs"], e["as"]]
                 sc["ok"] = [e["hs"], e["as"]] == sc["sc"]
-    # 2) bugunun kuponu (gunde bir kez olusturulur, sonra degismez)
-    if today not in state["coupons"]:
-        fut = [m for m in matches if pdate(m["d"]) > NOW + timedelta(minutes=10)]
-        picks, pool = [], []
-        for hours in range(36, 200, 24):
-            pool = [m for m in fut if pdate(m["d"]) <= NOW + timedelta(hours=hours)]
-            picks = [(tip_of(m), m) for m in pool]
-            picks = [(t, m) for t, m in picks if 1.25 <= t[2] <= 2.3 and t[0] >= 0.55]
-            if len(picks) >= 10:
+    # 2) iki gunluk kupon: her 2 gunde bir, o iki gunun en saglam maclariyla olusturulur
+    #    (mac sayisi sabit degil; sonradan degistirilmez)
+    keys = sorted(state["coupons"])
+    if keys:
+        last = state["coupons"][keys[-1]]
+        if last.get("v") != 2:                       # eski (gunluk 10 macli) kurallarla uretilmis kupon: bir kez yenile
+            del state["coupons"][keys[-1]]
+            keys = keys[:-1]
+    day0 = datetime.strptime(today, "%Y-%m-%d")
+    due = not keys or (day0 - datetime.strptime(keys[-1], "%Y-%m-%d")).days >= MOLLA_DAYS
+    if due:
+        until = (day0 + timedelta(days=MOLLA_DAYS - 1)).strftime("%Y-%m-%d")
+        # pencere: simdi -> ikinci gunun sonu (Askabat 24:00 = UTC 19:00)
+        w_end = day0.replace(tzinfo=timezone.utc) + timedelta(days=MOLLA_DAYS) - timedelta(hours=5)
+        pool = [m for m in matches if NOW + timedelta(minutes=15) < pdate(m["d"]) <= w_end]
+
+        def penalty(m):
+            lg = LGMAP[m["lg"]]
+            v = 0.03 if m["src"] != "model" else -0.03      # gercek piyasa orani olan maclar daha guvenilir
+            if lg["tier"] > 1:
+                v -= 0.04
+            if m["lg"] == "fifa.friendly":                   # hazirlik maclari ongorulemez
+                v -= 0.06
+            return v
+
+        cands = []
+        for m in pool:
+            p = m["p"]
+            pr = {"1": p["p1"], "X": p["px"], "2": p["p2"], "1X": p["p1"] + p["px"], "X2": p["px"] + p["p2"],
+                  "12": p["p1"] + p["p2"], "O1.5": p["o15"], "U3.5": 1 - p["o35"],
+                  "O2.5": p["o25"], "U2.5": 1 - p["o25"], "KGV": p["btts"], "KGY": 1 - p["btts"]}
+            opts = [(pr[k], k, m["o"][k]) for k in pr if m["o"].get(k) and m["o"][k] >= 1.18
+                    and wins(k, *p["score"])]
+            if not opts:
+                continue
+            best = max(opts, key=lambda x: x[0] + 0.03 * min(x[2] - 1.18, 1))   # olasilik onde, oran ikinci
+            cands.append((best[0] + penalty(m), best, m))
+        cands.sort(key=lambda x: -x[0])
+        picks = []
+        for thr in (0.76, 0.71, 0.66):
+            picks = [c for c in cands if c[0] >= thr]
+            if len(picks) >= 3:
                 break
-
-        def wgt(m):
-            return (0.04 if m["src"] != "model" else 0) - (0.03 if LGMAP[m["lg"]]["tier"] > 1 else 0)
-
-        picks.sort(key=lambda x: -(x[0][0] + wgt(x[1])))
-        picks = sorted(picks[:10], key=lambda x: x[1]["d"])
+        picks = picks[:8] or cands[:3]
+        picks.sort(key=lambda x: x[2]["d"])
 
         def base(m):
             return {"id": m["id"], "lg": m["lg"], "d": m["d"], "h": m["h"], "a": m["a"],
@@ -762,12 +792,13 @@ def molla(matches, done_by_id, src_team, use):
             sc = m["p"]["score"]
             return next((x[2] for x in m["p"]["top"] if x[:2] == sc), m["p"]["top"][0][2])
 
-        best = sorted(pool, key=lambda m: -(sprob(m) + wgt(m)))[:5]
+        best_sc = sorted(pool, key=lambda m: -(sprob(m) + penalty(m) / 3))[:5]
         if picks:
             state["coupons"][today] = {
-                "picks": [dict(base(m), k=t[1], o=t[2], p=round(t[0], 3), sc=m["p"]["score"]) for t, m in picks],
+                "v": 2, "until": until,
+                "picks": [dict(base(m), k=t[1], o=t[2], p=round(t[0], 3), sc=m["p"]["score"]) for _, t, m in picks],
                 "scores": [dict(base(m), sc=m["p"]["score"], sp=round(sprob(m), 3)) for m in
-                           sorted(best, key=lambda m: m["d"])]}
+                           sorted(best_sc, key=lambda m: m["d"])]}
     # 3) eski kayitlari at, kaydet
     keep = (NOW - timedelta(days=60)).strftime("%Y-%m-%d")
     state["coupons"] = {k: v for k, v in state["coupons"].items() if k >= keep}
@@ -1070,6 +1101,16 @@ def main():
     results.reverse()
 
     print("5/6 Takim adlari (TR / RU / TM)...", flush=True)
+    up_ids = {m["id"] for m in upcoming}
+    recent = []
+    for e in allev:
+        if e["id"] in up_ids or e["status"] in FINAL or not (NOW - timedelta(hours=4) <= e["dt"] <= NOW + timedelta(hours=1)):
+            continue
+        if any(w in (e["status"] or "") for w in ("POSTPONED", "CANCEL", "ABANDON", "SUSPEND")):
+            continue
+        use(e["h"]["id"])
+        use(e["a"]["id"])
+        recent.append({"id": e["id"], "lg": e["lg"], "d": e["d"], "h": e["h"]["id"], "a": e["a"]["id"]})
     molla_data = molla(matches, {e["id"]: e for e in done}, src_team, use)
     nat_ids = {e[s]["id"] for e in allev if LGMAP[e["lg"]]["nat"] for s in ("h", "a")}
     team_country = {e[s]["id"]: LG_COUNTRY[e["lg"]] for e in allev if e["lg"] in LG_COUNTRY for s in ("h", "a")}
@@ -1088,7 +1129,7 @@ def main():
     data = {"updated": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "leagues": [{"id": l["id"], "n": l["n"], "g": l["g"], "cup": l["cup"], "nat": l["nat"], "tier": l["tier"], "tsdb": bool(l["tsdb"])}
                         for l in LEAGUES],
-            "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data}
+            "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

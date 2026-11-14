@@ -173,7 +173,7 @@
   function renderChrome() {
     const h = location.hash || '#/';
     const act = k => (k === 'bulletin' ? (h === '#/' || h === '#' || h.startsWith('#/mac')) : h.startsWith(NAV.find(n => n[0] === k)[1]));
-    $('nav').innerHTML = NAV.map(([k, u]) => `<a href="${u}" class="${act(k) ? 'on' : ''}" ${act(k) ? 'aria-current="page"' : ''}>${t(k)}</a>`).join('')
+    $('nav').innerHTML = NAV.map(([k, u]) => `<a href="${u}" class="${act(k) ? 'on' : ''}" ${act(k) ? 'aria-current="page"' : ''}>${t(k)}${k === 'bulletin' || k === 'basketball' ? `<span class="lvn" data-sport="${k === 'bulletin' ? 'fb' : 'bb'}" hidden></span>` : ''}</a>`).join('')
       + `<a href="#/mollamyrat" class="mm ${h.startsWith('#/mollamyrat') ? 'on' : ''}">★ MollaMyrat</a>`;
     $('tabs').innerHTML = NAV.map(([k, u]) => `<a href="${u}" class="${act(k) ? 'on' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg><span>${t(k + '_s') !== k + '_s' ? t(k + '_s') : t(k)}</span></a>`).join('');
     $('bal').innerHTML = user
@@ -208,7 +208,16 @@
   // ---------- MollaMyrat'in kuponu (veri betigi uretir, haftalik takip edilir) ----------
   const MOLLA = D.molla || { today: '', coupons: [] };
   const pkName = (pk, side) => (D.teams[pk[side]] ? ts(pk[side]) : pk[side + 'n']);
-  const pkIcon = pk => (pk.ok === true ? '<span class="mst ok" title="✓">✓</span>' : pk.ok === false ? '<span class="mst no" title="✗">✗</span>' : '<span class="mst wait" title="…">•</span>');
+  // sonuc: veri betiginin isledigi ya da canli akistan gelen mac sonucu
+  function pkOk(pk, score) {
+    if (pk.ok !== undefined) return pk.ok;
+    const r = RES[pk.id];
+    if (!r) return null;
+    return score ? (r.hs === pk.sc[0] && r.as === pk.sc[1]) : wins(pk.k, r.hs, r.as);
+  }
+  const pkRes = pk => pk.res || (RES[pk.id] ? [RES[pk.id].hs, RES[pk.id].as] : null);
+  const pkIcon = (pk, score) => { const ok = pkOk(pk, score); return ok === true ? '<span class="mst ok" title="✓">✓</span>' : ok === false ? '<span class="mst no" title="✗">✗</span>' : '<span class="mst wait" title="…">•</span>'; };
+  const cRange = c => (c.until && c.until !== c.date ? dayShort(c.date) + ' – ' + dayShort(c.until) : dayLabel(c.date));
   const pkLive = pk => MATCH[pk.id] && future(MATCH[pk.id]) && MATCH[pk.id].o[pk.k];
   function weekRange(off) {
     const k = dayKey(Date.now()), p = keyParts(k), [y, m, d] = k.split('-').map(Number);
@@ -220,8 +229,8 @@
     const [a, b] = weekRange(off), cs = MOLLA.coupons.filter(c => c.date >= a && c.date <= b);
     const r = { a, b, cs, ok: 0, no: 0, wait: 0, sok: 0, sno: 0, swait: 0 };
     cs.forEach(c => {
-      c.picks.forEach(x => { if (x.ok === true) r.ok++; else if (x.ok === false) r.no++; else r.wait++; });
-      (c.scores || []).forEach(x => { if (x.ok === true) r.sok++; else if (x.ok === false) r.sno++; else r.swait++; });
+      c.picks.forEach(x => { const ok = pkOk(x); if (ok === true) r.ok++; else if (ok === false) r.no++; else r.wait++; });
+      (c.scores || []).forEach(x => { const ok = pkOk(x, true); if (ok === true) r.sok++; else if (ok === false) r.sno++; else r.swait++; });
     });
     return r;
   }
@@ -232,13 +241,14 @@
       ? `<span class="to num">${pk.sc[0]} - ${pk.sc[1]}<small>${pct(pk.sp)}%</small></span>`
       : `<span class="to num">${pk.o.toFixed(2)}</span>`;
     const sub = score ? `${shortDate(pk.d)} ${timeOf(pk.d)} · ${lg}` : `${shortDate(pk.d)} ${timeOf(pk.d)} · ${esc(mkLabel(pk.k))} · ${t('m_pred')} ${pk.sc[0]}-${pk.sc[1]}`;
-    return `<${tag} class="tipc-r"${href}><span class="tl">${logo(pk.h, 'sm')}${logo(pk.a, 'sm')}</span><span class="tt"><b>${esc(pkName(pk, 'h'))} – ${esc(pkName(pk, 'a'))}</b><small>${sub}${pk.res ? ' · <b class="res">' + pk.res[0] + '-' + pk.res[1] + '</b>' : ''}</small></span>${right}${pkIcon(pk)}</${tag}>`;
+    const res = pkRes(pk);
+    return `<${tag} class="tipc-r"${href}><span class="tl">${logo(pk.h, 'sm')}${logo(pk.a, 'sm')}</span><span class="tt"><b>${esc(pkName(pk, 'h'))} – ${esc(pkName(pk, 'a'))}</b><small>${sub}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}</small></span>${right}${pkIcon(pk, score)}</${tag}>`;
   }
   function tipCoupon() {
     const c = MOLLA.coupons[0];
     if (!c) return '';
     const tot = c.picks.reduce((p, x) => p * x.o, 1), w = weekStats(0);
-    return `<div class="card tipc"><div class="tipc-h"><b>★ ${t('tipc_title')}</b><small>${fmt(t('tipc_sub'), { n: c.picks.length })} · ${dayShort(c.date)}</small></div>
+    return `<div class="card tipc"><div class="tipc-h"><b>★ ${t('tipc_title')}</b><small>${fmt(t('tipc_sub'), { n: c.picks.length })} · ${cRange(c)}</small></div>
       ${c.picks.map(x => molRow(x)).join('')}
       <div class="tipc-f"><div class="sum"><span>${t('total_odds')}</span><b class="num">${tot.toFixed(2)}</b></div>
       <div class="sum"><span>${fmt(t('tipc_min'), { s: MIN_STAKE })}</span><b class="num" style="color:var(--pri)">${money(Math.min(MIN_STAKE * tot, MAX_WIN))}</b></div>
@@ -256,14 +266,14 @@
       <div class="kpi"><small>${t('m_rate')}</small><b style="color:var(--gold)">${rate(x.ok, x.no)}</b></div>
       <div class="kpi"><small>${t('m_score_hit')}</small><b>${x.sok}/${x.sok + x.sno}</b></div></div>`;
     const cpn = c => {
-      const o = c.picks.filter(x => x.ok === true).length, n = c.picks.filter(x => x.ok === false).length;
+      const o = c.picks.filter(x => pkOk(x) === true).length, n = c.picks.filter(x => pkOk(x) === false).length;
       const st = n ? 'lost' : (o === c.picks.length ? 'won' : 'pending');
-      return `<div class="card tipc mc"><div class="tipc-h row"><b>${dayLabel(c.date)}</b><span class="st ${st}">${t(st)}</span><small class="num">${o} ✓ · ${n} ✗ · ${c.picks.length - o - n} •</small></div>${c.picks.map(x => molRow(x)).join('')}</div>`;
+      return `<div class="card tipc mc"><div class="tipc-h row"><b>${cRange(c)}</b><span class="st ${st}">${t(st)}</span><small class="num">${o} ✓ · ${n} ✗ · ${c.picks.length - o - n} •</small></div>${c.picks.map(x => molRow(x)).join('')}</div>`;
     };
     const range = x => `${dayShort(x.a)} – ${dayShort(x.b)}`;
     return `<div class="pagehead"><h1>★ ${t('tipc_title')}</h1><small>${t('m_note')}</small></div>
       <div class="card sec" style="margin-top:0"><h2>${t('m_week')} <small class="mut num">${range(w)}</small></h2>${box(w)}</div>
-      ${c0 && c0.scores && c0.scores.length ? `<div class="card tipc mc"><div class="tipc-h"><b>${t('m_scores')}</b><small>${dayLabel(c0.date)}</small></div>${c0.scores.map(x => molRow(x, true)).join('')}</div>` : ''}
+      ${c0 && c0.scores && c0.scores.length ? `<div class="card tipc mc"><div class="tipc-h"><b>${t('m_scores')}</b><small>${cRange(c0)}</small></div>${c0.scores.map(x => molRow(x, true)).join('')}</div>` : ''}
       <h2 class="dayhead">${t('m_coupons')}</h2>
       ${w.cs.length ? w.cs.map(cpn).join('') : `<div class="card empty">${t('m_none')}</div>`}
       ${lw.cs.length ? `<div class="card sec"><h2>${t('m_last')} <small class="mut num">${range(lw)}</small></h2>${box(lw)}</div><details class="lastw"><summary>${t('m_last')} · ${t('m_coupons')}</summary>${lw.cs.map(cpn).join('')}</details>` : ''}`;
@@ -338,6 +348,7 @@
       ${dayStrip(days)}${lgChips(new Set(up.map(m => m.lg)))}
       <div class="searchrow"><input id="q" type="search" placeholder="${t('search')}" value="${esc(flt.q)}" autocomplete="off" aria-label="${t('search')}"></div>
       <details class="tipmob"><summary>★ ${t('tipc_title')}</summary>${tipCoupon()}</details>
+      <div id="livebox" data-sport="fb">${liveBox('fb')}</div>
       <div id="blist">${bulletinList()}</div>`;
   }
   function bulletinList() {
@@ -347,15 +358,12 @@
       && (q ? (hit(m.h) || hit(m.a)) : (flt.day === 'all' || dayKey(m.d) === flt.day)));
     if (!list.length) return `<div class="card empty">${t('nomatch')}</div>`;
     let html = '';
+    const order = {}; D.leagues.forEach((l, i) => { order[l.id] = i; });
     [...new Set(list.map(m => dayKey(m.d)))].sort().forEach(dk => {
-      html += `<h2 class="dayhead">${dayLabel(dk)}</h2>`;
-      D.leagues.forEach(l => {
-        const ms = list.filter(m => m.lg === l.id && dayKey(m.d) === dk).sort(byDate);
-        if (!ms.length) return;
-        html += `<section class="card lgblock"><div class="lghead">${badge(l.id)}<span>${esc(ln(l.id))}</span><span class="day">${ms.length} ${t('selections')}</span></div>
-          <div class="mkhead"><span></span><span>${t('ms')}</span><span>${t('ou')} 2.5</span><span>${t('btts')}</span><span></span></div>
-          ${ms.map(row).join('')}</section>`;
-      });
+      const ms = list.filter(m => dayKey(m.d) === dk).sort((a, b) => byDate(a, b) || order[a.lg] - order[b.lg]);
+      html += `<h2 class="dayhead">${dayLabel(dk)} <small>${ms.length} ${t('selections')}</small></h2><section class="card lgblock">
+        <div class="mkhead"><span></span><span>${t('ms')}</span><span>${t('ou')} 2.5</span><span>${t('btts')}</span><span></span></div>
+        ${ms.map(row).join('')}</section>`;
     });
     return html;
   }
@@ -363,7 +371,7 @@
     return `<div class="mrow">
       <a class="minfo" href="#/mac/${m.id}">
         <div class="mtime num">${timeOf(m.d)}<small>${srcBadge(m.src)}</small></div>
-        <div class="mteams"><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span></div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span></div></div>
+        <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span></div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span></div></div>
       </a>
       <div class="og c3 ms">${ob(m, '1')}${ob(m, 'X')}${ob(m, '2')}</div>
       <div class="og c2 ou">${ob(m, 'U2.5', t('under'))}${ob(m, 'O2.5', t('over'))}</div>
@@ -411,7 +419,7 @@
           <div class="meta">${badge(m.lg)} ${esc(ln(m.lg))} · ${dayLabel(dayKey(m.d))} · ${timeOf(m.d)}${m.v ? ' · ' + esc(m.v) : ''}</div>
           <div class="vs">
             <div class="side-t">${logo(m.h)}<span>${esc(tn(m.h))}</span><span class="frm">${formDots(m.f.h.slice(0, 5).map(x => x.r).reverse())}</span></div>
-            <div class="mid">${timeOf(m.d)}<small>${shortDate(m.d)}</small></div>
+            <div class="mid" data-lvh="${m.id}">${timeOf(m.d)}<small>${shortDate(m.d)}</small></div>
             <div class="side-t">${logo(m.a)}<span>${esc(tn(m.a))}</span><span class="frm">${formDots(m.f.a.slice(0, 5).map(x => x.r).reverse())}</span></div>
           </div>
         </div>
@@ -581,7 +589,10 @@
   // ---------- sonuclar ----------
   const resRow = (g, withDate) => `<div class="g"><span class="mut num">${withDate ? shortDate(g.d) : timeOf(g.d)}</span><span class="o">${esc(tn(g.h))} ${logo(g.h, 'sm')}</span><span class="sc">${g.hs} - ${g.as}</span><span class="o">${logo(g.a, 'sm')} ${esc(tn(g.a))}</span></div>`;
   function viewResults() {
-    const inLg = D.results.filter(r => flt.lg === 'all' || r.lg === flt.lg);
+    const known = new Set(D.results.map(r => r.id));
+    const liveRes = liveCands().filter(m => !isBB(m) && LIVE[m.id] && LIVE[m.id].fin && !known.has(m.id))
+      .map(m => ({ id: m.id, lg: m.lg, d: m.d, h: m.h, a: m.a, hs: LIVE[m.id].hs, as: LIVE[m.id].as }));
+    const inLg = liveRes.concat(D.results).filter(r => flt.lg === 'all' || r.lg === flt.lg);
     const days = [...new Set(inLg.map(r => dayKey(r.d)))].sort().reverse();
     if (flt.rday === undefined || !days.includes(flt.rday)) flt.rday = days[0];
     const list = inLg.filter(r => dayKey(r.d) === flt.rday);
@@ -600,7 +611,7 @@
   // ---------- basketbol ----------
   function viewBasketball() {
     const up = BB.matches.filter(future).sort(byDate);
-    let html = `<div class="pagehead"><h1>${t('bb_title')}</h1><small>${t('tznote')}</small></div>`;
+    let html = `<div class="pagehead"><h1>${t('bb_title')}</h1><small>${t('tznote')}</small></div><div id="livebox" data-sport="bb">${liveBox('bb')}</div>`;
     if (!up.length) html += `<div class="card empty">${t('bb_none')}</div>`;
     [...new Set(up.map(m => dayKey(m.d)))].sort().forEach(dk => {
       const ms = up.filter(m => dayKey(m.d) === dk);
@@ -723,6 +734,111 @@
   }
   const viewRules = () => `<div class="pagehead"><h1>${t('r_title')}</h1></div><div class="card rules"><ol>${t('r_items').map(x => `<li>${esc(x)}</li>`).join('')}</ol><p class="note">${t('max_win_note')}</p></div>`;
 
+  // ---------- canli skor (tarayicidan dogrudan, dakikada bir) ----------
+  const LIVE = {};            // id -> { s: 'in' | 'post', hs, as, c: saat, fin: sonuclandirilabilir }
+  const RECENT = D.recent || [];
+  const tsLast = {};
+  const isBB = m => m.sport === 'bb';
+  function liveCands(sport) {
+    const now = Date.now(), seen = new Set(), out = [];
+    D.matches.concat(RECENT, BB.matches).forEach(m => {
+      if (seen.has(m.id)) return; seen.add(m.id);
+      if (sport && (sport === 'bb') !== isBB(m)) return;
+      const t0 = new Date(m.d).getTime();
+      if (t0 <= now + 30e3 && t0 > now - (isBB(m) ? 4.5 : 3.3) * 3600e3) out.push(m);
+    });
+    return out.sort(byDate);
+  }
+  function liveRow(m) {
+    const l = LIVE[m.id], on = l && l.s === 'in';
+    const clock = !l ? t('lv_started') : l.s === 'post' ? t('lv_ft') : (l.c || t('live'));
+    const lg = isBB(m) ? '<span class="cc">NBA</span><span>NBA</span>' : `${badge(m.lg)}<span>${esc(ln(m.lg))}</span>`;
+    const inner = `<div class="mtime num"><b class="lclk ${on ? 'on' : ''}">${esc(clock)}</b><small>${timeOf(m.d)}</small></div>
+      <div class="mteams"><div class="mlg">${lg}</div>
+        <div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span><b class="ls ${on ? 'on' : ''}">${l ? l.hs : '–'}</b></div>
+        <div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span><b class="ls ${on ? 'on' : ''}">${l ? l.as : '–'}</b></div></div>`;
+    return MATCH[m.id] && !isBB(m) ? `<a class="lrow" href="#/mac/${m.id}">${inner}</a>` : `<div class="lrow">${inner}</div>`;
+  }
+  function liveBox(sport) {
+    const cs = liveCands(sport).filter(m => sport === 'bb' || flt.lg === 'all' || m.lg === flt.lg);
+    if (!cs.length) return '';
+    const n = cs.filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post')).length;
+    return `<h2 class="dayhead lvhead"><span class="pulse"></span>${t('live')} <small>${n} ${t('selections')}</small></h2><section class="card lgblock live">${cs.map(liveRow).join('')}</section>`;
+  }
+  function paintLive() {
+    const box = $('livebox');
+    if (box && !(flt.q || '').trim()) box.innerHTML = liveBox(box.dataset.sport);
+    document.querySelectorAll('[data-lv]').forEach(el => {
+      const l = LIVE[el.dataset.lv];
+      el.innerHTML = l ? ` · <b class="ls ${l.s === 'in' ? 'on' : ''}">${l.hs}-${l.as}${l.s === 'in' && l.c ? ' <i>' + esc(l.c) + '</i>' : ''}</b>` : '';
+    });
+    document.querySelectorAll('[data-lvh]').forEach(el => {
+      const l = LIVE[el.dataset.lvh];
+      if (l) el.innerHTML = `<span class="${l.s === 'in' ? 'lsc' : ''}">${l.hs} - ${l.as}</span><small class="lclk ${l.s === 'in' ? 'on' : ''}">${esc(l.s === 'post' ? t('lv_ft') : l.c || t('live'))}</small>`;
+    });
+    ['fb', 'bb'].forEach(sp => {
+      const n = liveCands(sp).filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post')).length;
+      document.querySelectorAll(`.lvn[data-sport="${sp}"]`).forEach(el => { el.textContent = n; el.hidden = !n; });
+    });
+  }
+  const ymd = ms => new Date(ms).toISOString().slice(0, 10).replace(/-/g, '');
+  let polling = false;
+  async function pollLive() {
+    if (polling || document.hidden) return;
+    const cs = liveCands().filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post'));
+    if (!cs.length) return;
+    polling = true;
+    const want = {}, jobs = [];
+    cs.forEach(m => {
+      const id = String(m.id);
+      if (id[0] === 'T') {          // TheSportsDB (Turkiye / Rusya alt ligleri)
+        if (Date.now() - (tsLast[id] || 0) < 110e3) return;
+        tsLast[id] = Date.now();
+        jobs.push(fetch('https://www.thesportsdb.com/api/v1/json/123/lookupevent.php?id=' + id.slice(1)).then(r => r.json()).then(d => {
+          const e = (d.events || [])[0]; if (!e) return;
+          const st = String(e.strStatus || '').toUpperCase();
+          if (!st || st === 'NS' || st === 'NOT STARTED' || /POSTP|CANC|ABAN/.test(st) || e.intHomeScore == null) return;
+          const fin = ['FT', 'AET', 'PEN', 'MATCH FINISHED'].includes(st);
+          LIVE[id] = { s: fin ? 'post' : 'in', hs: +e.intHomeScore || 0, as: +e.intAwayScore || 0,
+            c: fin ? '' : st === 'HT' ? t('ht') : (e.strProgress ? e.strProgress + "'" : st), fin: st === 'FT' || st === 'MATCH FINISHED' };
+        }).catch(() => { }));
+        return;
+      }
+      const lg = isBB(m) ? 'nba' : m.lg, t0 = new Date(m.d).getTime();
+      (want[lg] = want[lg] || new Set()).add(ymd(t0)).add(ymd(t0 - 6 * 3600e3));
+    });
+    Object.keys(want).forEach(lg => want[lg].forEach(day => {
+      const path = lg === 'nba' ? 'basketball/nba' : 'soccer/' + lg;
+      jobs.push(fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${day}&limit=200`).then(r => r.json()).then(d => {
+        (d.events || []).forEach(e => {
+          const st = e.status && e.status.type;
+          if (!st || st.state === 'pre' || /POSTPON|CANCEL|ABANDON|SUSPEND|DELAY/.test(st.name || '')) return;
+          const c = e.competitions[0].competitors, h = c.find(x => x.homeAway === 'home'), a = c.find(x => x.homeAway === 'away');
+          const id = (lg === 'nba' ? 'b' : '') + e.id;
+          LIVE[id] = { s: st.state === 'post' ? 'post' : 'in', hs: +h.score || 0, as: +a.score || 0,
+            c: st.state === 'post' ? '' : /HALFTIME/.test(st.name) ? t('ht') : (lg === 'nba' ? st.shortDetail : e.status.displayClock) || '',
+            fin: st.name === 'STATUS_FULL_TIME' || st.name === 'STATUS_FINAL' };
+        });
+      }).catch(() => { }));
+    }));
+    await Promise.all(jobs);
+    polling = false;
+    liveChanged();
+  }
+  function liveChanged() {
+    let fin = false;
+    Object.keys(LIVE).forEach(id => {
+      const l = LIVE[id];
+      if (l.s === 'post' && l.fin && !RES[id]) { RES[id] = { id, hs: l.hs, as: l.as, live: 1 }; fin = true; }
+    });
+    if (fin) {
+      settle(); renderChrome();
+      const h = location.hash || '#/', typing = document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+      if (!typing && /^#\/(mollamyrat|sonuclar|kuponlarim|profil)/.test(h)) { const y = scrollY; render(); scrollTo(0, y); return; }
+    }
+    paintLive();
+  }
+
   // ---------- yonlendirme ----------
   let lastRoute = null;
   function render() {
@@ -741,7 +857,7 @@
     else { html = viewBulletin(); title = t('bulletin'); }
     $('main').innerHTML = html;
     document.title = title + ' — Ahal365';
-    renderChrome(); renderSide(); renderSlip(); syncStrips();
+    renderChrome(); renderSide(); renderSlip(); syncStrips(); paintLive();
     if (h !== lastRoute) { window.scrollTo(0, 0); lastRoute = h; }
   }
   let toastT;
@@ -776,7 +892,7 @@
   });
   document.addEventListener('input', e => {
     if (e.target.id === 'stake') { stake = e.target.value; LS.set('stake', parseFloat(stake) || MIN_STAKE); updWin(); }
-    if (e.target.id === 'q') { flt.q = e.target.value; $('blist').innerHTML = bulletinList(); }
+    if (e.target.id === 'q') { flt.q = e.target.value; $('blist').innerHTML = bulletinList(); const b = $('livebox'); if (b) b.innerHTML = flt.q.trim() ? '' : liveBox('fb'); }
   });
   document.addEventListener('submit', e => {
     const f = e.target.closest('form[data-form]'); if (!f) return;
@@ -798,5 +914,7 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape') document.body.classList.remove('slipopen'); });
 
   cleanSlip(); settle(); render();
+  pollLive(); setInterval(pollLive, 60e3);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) pollLive(); });
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { });
 })();
