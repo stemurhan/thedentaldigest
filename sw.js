@@ -1,5 +1,5 @@
 // Ahal365 servis calisani: once ag, olmazsa onbellek (bulten her zaman guncel kalsin).
-const CACHE = 'ahal365-v4';
+const CACHE = 'ahal365-v5';
 const SHELL = ['./', 'index.html', 'css/style.css', 'js/i18n.js', 'js/app.js', 'img/icon.svg', 'manifest.json'];
 
 self.addEventListener('install', e => {

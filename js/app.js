@@ -26,7 +26,7 @@
   function loadUser() { coupons = user ? LS.get(ukey('coupons'), []) : []; balance = user ? LS.get(ukey('balance'), START_BAL) : 0; }
   const saveUser = () => { if (user) { LS.set(ukey('coupons'), coupons); LS.set(ukey('balance'), balance); } };
   loadUser();
-  const flt = { lg: 'all', day: null, q: '' };
+  const flt = { lg: 'all', day: null, q: '', alim: 48, lvall: false };
   let dtab = 'pred', ttab = 'all', slipErr = '', navDepth = 0;
 
   const $ = id => document.getElementById(id);
@@ -68,9 +68,10 @@
     const tm = team(id), ini = esc((tm.s || tm.n).replace(/[^A-Za-zÀ-ÿА-я]/g, '').slice(0, 2).toUpperCase());
     const c = 'logo' + (cls ? ' ' + cls : '');
     return tm.l
-      ? `<img class="${c}" src="${esc(tm.l)}" alt="" loading="lazy" decoding="async" onerror="this.outerHTML='<span class=&quot;${c} ph&quot;>${ini}</span>'">`
+      ? `<img class="${c}" src="${esc(tm.l)}" alt="" loading="${cls === 'sm' ? 'eager' : 'lazy'}" decoding="async" onerror="this.outerHTML='<span class=&quot;${c} ph&quot;>${ini}</span>'">`
       : `<span class="${c} ph">${ini}</span>`;
   }
+  const pair = (h, a, hn, an) => `<span class="pair" title="${esc(hn)} – ${esc(an)}"><span class="ts">${logo(h, 'sm')}<span class="nm">${esc(hn)}</span></span><span class="sep">–</span><span class="ts">${logo(a, 'sm')}<span class="nm">${esc(an)}</span></span></span>`;
   const badge = lg => `<span class="cc">${GBADGE[(LG[lg] || {}).g] || 'NBA'}</span>`;
   const srcName = s => (s === 'model' ? 'Ahal365' : s);
   const srcBadge = s => `<span class="srcb ${s === 'model' ? 'm' : ''}">${esc(srcName(s))}</span>`;
@@ -180,7 +181,7 @@
       ? `<span class="av">${esc(user.slice(0, 1).toUpperCase())}</span><span class="bt"><small>${esc(user)}</small><b>${money(balance)}</b></span>`
       : `<span class="av">👤</span><span class="bt"><b class="lg lg-l">${t('login_or')}</b><b class="lg lg-s">${t('login')}</b></span>`;
     $('bal').setAttribute('aria-label', t('profile'));
-    const up = D.updated ? new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(D.updated)) : '-';
+    const up = D.updated ? `${shortDate(D.updated)}.${dayKey(D.updated).slice(0, 4)} ${timeOf(D.updated)}` : '-';
     $('foot').innerHTML = `
       <div class="fl"><span class="age">18+</span><span>${t('foot_18')}</span></div>
       <div class="fl"><span>${t('foot_disc')}</span></div>
@@ -242,7 +243,7 @@
       : `<span class="to num">${pk.o.toFixed(2)}</span>`;
     const sub = score ? `${shortDate(pk.d)} ${timeOf(pk.d)} · ${lg}` : `${shortDate(pk.d)} ${timeOf(pk.d)} · ${esc(mkLabel(pk.k))} · ${t('m_pred')} ${pk.sc[0]}-${pk.sc[1]}`;
     const res = pkRes(pk);
-    return `<${tag} class="tipc-r"${href}><span class="tl">${logo(pk.h, 'sm')}${logo(pk.a, 'sm')}</span><span class="tt"><b>${esc(pkName(pk, 'h'))} – ${esc(pkName(pk, 'a'))}</b><small>${sub}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}</small></span>${right}${pkIcon(pk, score)}</${tag}>`;
+    return `<${tag} class="tipc-r"${href}><span class="tt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small>${sub}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}</small></span>${right}${pkIcon(pk, score)}</${tag}>`;
   }
   function tipCoupon() {
     const c = MOLLA.coupons[0];
@@ -389,7 +390,8 @@
     const list = inLg.filter(m => flt.day === 'all' || dayKey(m.d) === flt.day).sort(byDate);
     let html = `<div class="pagehead"><h1>${t('analysis')}</h1><small>${t('foot_disc')}</small></div>${dayStrip(days)}${lgChips(new Set(up.map(m => m.lg)), true)}`;
     if (!list.length) return html + `<div class="card empty">${t('nomatch')}</div>`;
-    return html + '<div class="acards">' + list.map(m => {
+    const more = list.length - flt.alim;
+    return html + '<div class="acards">' + list.slice(0, flt.alim).map(m => {
       const tp = tipOf(m), p = m.p;
       return `<a class="card acard" href="#/mac/${m.id}">
         <div class="top-l"><span>${badge(m.lg)} ${esc(ln(m.lg))}</span><span class="num">${shortDate(m.d)} ${timeOf(m.d)}</span></div>
@@ -397,14 +399,14 @@
         ${pbar(p)}
         <div class="top-l"><span>${t('tip')}: <b style="color:var(--tx)">${esc(mkLabel(tp.k))}</b> · <span class="num">${tp.o.toFixed(2)}</span></span>${stars(tp.stars)}</div>
       </a>`;
-    }).join('') + '</div>';
+    }).join('') + '</div>' + (more > 0 ? `<button class="btn ghost more" data-act="amore">${fmt(t('show_more'), { n: more })}</button>` : '');
   }
 
   // ---------- mac detay ----------
   const backLink = () => `<a class="back" href="#/" data-back="1">← ${t('back')}</a>`;
   function viewMatch(id) {
     const m = MATCH[id];
-    if (!m || m.sport === 'bb') return `${backLink()}<div class="card empty">${t('nomatch')}</div>`;
+    if (!m || m.sport === 'bb') return `${backLink()}<div class="card empty">${t('no_match_found')}</div>`;
     const TABS = [['pred', t('pred')], ['odds', t('odds')], ['table', t('standings')], ['form', t('formh2h')], ['squad', t('lineups')], ['players', t('players')]];
     let body = '';
     if (dtab === 'pred') body = tabPred(m);
@@ -641,16 +643,17 @@
     if (slip.length !== n) LS.set('slip', slip);
     return n - slip.length;
   }
+  const sideTip = () => (/^#\/mollamyrat/.test(location.hash) ? '' : tipCoupon());
   function renderSlip() {
     const n = slip.length, tot = n ? totalOdds() : 0;
     document.body.classList.toggle('hasslip', n > 0);
     $('slipbar').innerHTML = `<span class="n">${n}</span><span>${t('coupon')}</span><span class="o num">${tot.toFixed(2)}</span>`;
     const head = `<div class="sliphead"><span>${t('coupon')}</span><span class="badge">${n}</span><span class="type">${n ? (n === 1 ? t('single') : t('combo')) : ''}</span>${n ? `<button class="clr" data-act="clear">${t('clear')}</button>` : ''}<button class="x" data-act="close" aria-label="×">×</button></div>`;
-    if (!n) { $('slip').innerHTML = `<div class="card bs">${head}<div class="empty">${t('slip_empty')}</div></div>${tipCoupon()}`; return; }
+    if (!n) { $('slip').innerHTML = `<div class="card bs">${head}<div class="empty">${t('slip_empty')}</div></div>${sideTip()}`; return; }
     // kompakt satirlar: ayni anda en az 10 mac gorunur; bedel/oyna alani altta sabit kalir
     $('slip').innerHTML = `<div class="card bs">${head}
       <div class="sels">${slip.map((s, i) => { const m = MATCH[s.m]; return `<div class="sel"><span class="no">${i + 1}</span><div class="sc">
-        <div class="r1"><span class="t">${esc(ts(m.h))} – ${esc(ts(m.a))}</span><b>${m.o[s.k].toFixed(2)}</b></div>
+        <div class="r1">${pair(m.h, m.a, ts(m.h), ts(m.a))}<b>${m.o[s.k].toFixed(2)}</b></div>
         <div class="r2">${esc(mkLabel(s.k, m))} · ${shortDate(m.d)} ${timeOf(m.d)}</div></div>
         <button class="rm" data-rm="${s.m}" aria-label="×">×</button></div>`; }).join('')}</div>
       <div class="slipbody">
@@ -661,7 +664,7 @@
         <div class="err" id="s-err" role="alert">${esc(slipErr)}</div>
         <button class="btn" data-act="play">${t('play')}</button>
         <div class="slipnote">${t('min_stake')}</div>
-      </div></div>${tipCoupon()}`;
+      </div></div>${sideTip()}`;
     updWin();
   }
   function updWin() {
@@ -728,8 +731,8 @@
       <button class="chip" style="margin-left:auto" data-act="resetbal">${t('reset_balance')}</button></div></div>`;
     if (!coupons.length) return html + `<div class="card empty">${t('no_coupons')}</div>`;
     return html + coupons.map(c => `<div class="card cpn">
-      <div class="cpn-h"><b>${t('coupon_no')}: ${esc(c.id)}</b><span class="st ${c.status}">${t(c.status)}</span><span class="mut num" style="margin-left:auto">${new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(c.ts))}</span></div>
-      ${c.sels.map(s => `<div class="row"><span>${esc(nm(s, 'h'))} – ${esc(nm(s, 'a'))}<br><small class="mut">${esc(mkLabel(s.k, null, s.ln))} · ${shortDate(s.d)} ${timeOf(s.d)}${s.res ? ' · ' + esc(s.res) : ''}</small></span><span class="r ${s.ok === true ? 'ok' : s.ok === false ? 'no' : ''}">${s.o.toFixed(2)}</span></div>`).join('')}
+      <div class="cpn-h"><b>${t('coupon_no')}: ${esc(c.id)}</b><span class="st ${c.status}">${t(c.status)}</span><span class="mut num" style="margin-left:auto">${shortDate(c.ts)} ${timeOf(c.ts)}</span></div>
+      ${c.sels.map(s => `<div class="row"><span class="rl">${pair(s.hi, s.ai, nm(s, 'h'), nm(s, 'a'))}<small class="mut">${esc(mkLabel(s.k, null, s.ln))} · ${shortDate(s.d)} ${timeOf(s.d)}${s.res ? ' · ' + esc(s.res) : ''}</small></span><span class="r ${s.ok === true ? 'ok' : s.ok === false ? 'no' : ''}">${s.o.toFixed(2)}</span></div>`).join('')}
       <div class="cpn-f"><span>${t('stake')}: <b>${money(c.stake)}</b></span><span>${t('total_odds')}: <b>${c.odds.toFixed(2)}</b></span><span>${t(c.status === 'won' ? 'payout' : 'max_win')}: <b>${money(c.win)}</b></span></div>
     </div>`).join('');
   }
@@ -764,7 +767,9 @@
     const cs = liveCands(sport).filter(m => sport === 'bb' || flt.lg === 'all' || m.lg === flt.lg);
     if (!cs.length) return '';
     const n = cs.filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post')).length;
-    return `<h2 class="dayhead lvhead"><span class="pulse"></span>${t('live')} <small>${n} ${t('selections')}</small></h2><section class="card lgblock live">${cs.map(liveRow).join('')}</section>`;
+    const LIM = 6, show = flt.lvall ? cs : cs.slice(0, LIM);
+    return `<h2 class="dayhead lvhead"><span class="pulse"></span>${t('live')} <small>${n} ${t('selections')}</small></h2><section class="card lgblock live">${show.map(liveRow).join('')}
+      ${cs.length > LIM ? `<button class="lvmore" data-act="lvall">${flt.lvall ? t('show_less') : fmt(t('show_all'), { n: cs.length })}</button>` : ''}</section>`;
   }
   function paintLive() {
     const box = $('livebox');
@@ -872,14 +877,16 @@
     const d = b.dataset;
     if (d.m && d.k) return toggleSel(d.m, d.k);
     if (d.scroll) { const c = b.parentNode.querySelector('.chips'); return c.scrollBy({ left: +d.scroll * c.clientWidth * .7, behavior: 'smooth' }); }
-    if (d.lg) { flt.lg = flt.lg === d.lg ? 'all' : d.lg; return render(); }
-    if (d.day) { flt.day = d.day; flt.q = ''; return render(); }
+    if (d.lg) { flt.lg = flt.lg === d.lg ? 'all' : d.lg; flt.alim = 48; return render(); }
+    if (d.day) { flt.day = d.day; flt.q = ''; flt.alim = 48; return render(); }
     if (d.rday) { flt.rday = d.rday; return render(); }
     if (d.dtab) { dtab = d.dtab; return render(); }
     if (d.ttab) { ttab = d.ttab; return render(); }
     if (d.rm) return toggleSel(d.rm, (slip.find(s => s.m === d.rm) || {}).k);
     if (d.q) { stake = +d.q; LS.set('stake', stake); const i = $('stake'); if (i) i.value = stake; slipErr = ''; $('s-err').textContent = ''; return updWin(); }
     if (d.act === 'play') return play();
+    if (d.act === 'amore') { flt.alim += 48; const y = scrollY; render(); scrollTo(0, y); return; }
+    if (d.act === 'lvall') { flt.lvall = !flt.lvall; return paintLive(); }
     if (d.act === 'tipadd') {
       slip = MOLLA.coupons[0].picks.filter(pkLive).map(x => ({ m: x.id, k: x.k })); LS.set('slip', slip); slipErr = '';
       toast(t('tipc_added')); syncObs(); renderSlip();
