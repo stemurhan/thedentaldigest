@@ -6,6 +6,10 @@ on:
     - cron: "0 10 * * *"   # 15:00 Askabat - oran ve sonuc yenileme
     - cron: "0 18 * * *"   # 23:00 Askabat - aksam sonuclari
   workflow_dispatch:
+  push:               # betik veya is akisi degisince de calis
+    paths:
+      - "scripts/**"
+      - ".github/workflows/**"
 
 permissions:
   contents: write
