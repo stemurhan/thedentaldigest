@@ -647,6 +647,24 @@ def make_index(rows, drop=True):
     return idx
 
 
+# Wikidata'da "cok sporlu kulup" gibi farkli kayitli ya da hic bulunamayan kulupler
+NAME_FIX = {
+    "Barcelona": {"tr": "Barcelona", "ru": "Барселона", "tk": "Barselona"},
+    "Gaziantep FK": {"tr": "Gaziantep FK", "ru": "Газиантеп", "tk": "Gaziantep"},
+    "Amed SFK": {"tr": "Amedspor", "ru": "Амедспор", "tk": "Amedspor"},
+    "Erzurum BB": {"tr": "Erzurumspor FK", "ru": "Эрзурумспор", "tk": "Erzurumspor"},
+    "AEK Athens": {"tr": "AEK", "ru": "АЕК Афины", "tk": "AEK Afiny"},
+    "OFI Crete": {"tr": "OFI", "ru": "ОФИ", "tk": "OFI"},
+    "Torreense": {"tr": "Torreense", "ru": "Торреенсе", "tk": "Torreense"},
+    "Hapoel Be'er": {"tr": "Hapoel Beer Şeva", "ru": "Хапоэль Беэр-Шева", "tk": "Hapoel Beer-Şewa"},
+    "Olympiacos": {"tr": "Olympiakos", "ru": "Олимпиакос", "tk": "Olimpiakos"},
+    "RB Salzburg": {"tr": "Red Bull Salzburg", "ru": "Ред Булл Зальцбург", "tk": "Red Bull Zalsburg"},
+    "Ferencvaros": {"tr": "Ferencváros", "ru": "Ференцварош", "tk": "Ferenswaroş"},
+    "Osasuna": {"tr": "Osasuna", "ru": "Осасуна", "tk": "Osasuna"},
+}
+RESERVE_RE = re.compile(r"(\s(B|C|II|III)$|U-?\d{2}\b|Reserve|Juvenil|Youth|Women|Atlètic|Fortuna)", re.I)
+
+
 def localize(teams, nat_ids, team_country):
     need = sorted({q for q in team_country.values()} | set(EURO_Q))
     by_c, glob = {}, {}
@@ -674,6 +692,13 @@ def localize(teams, nat_ids, team_country):
                          if ks <= set(kk.split()) or (len(kk) >= 5 and set(kk.split()) <= ks)}
                 if len(cands) == 1:
                     rec = next(iter(cands.values()))
+        if rec and not tid in nat_ids and RESERVE_RE.search(rec[1]["en"]) and not RESERVE_RE.search(t["n"]):
+            rec = None                      # alt takim (B, C, U19...) ana takimla eslesmesin
+        fix = NAME_FIX.get(t["n"])
+        if fix:
+            t.update(fix)
+            hit += 1
+            continue
         if rec:
             hit += 1
             for lg in ("ru", "tr", "tk"):
@@ -800,10 +825,10 @@ def molla(matches, done_by_id, src_team, use):
                 "scores": [dict(base(m), sc=m["p"]["score"], sp=round(sprob(m), 3)) for m in
                            sorted(best_sc, key=lambda m: m["d"])]}
     # 3) eski kayitlari at, kaydet
-    keep = (NOW - timedelta(days=60)).strftime("%Y-%m-%d")
+    keep = (NOW - timedelta(days=400)).strftime("%Y-%m-%d")
     state["coupons"] = {k: v for k, v in state["coupons"].items() if k >= keep}
     cache_write(MOLLA, state)
-    show = (NOW - timedelta(days=15)).strftime("%Y-%m-%d")
+    show = keep
     out = [dict(v, date=k) for k, v in sorted(state["coupons"].items(), reverse=True) if k >= show]
     for c in out:
         for x in c["picks"] + c.get("scores", []):
@@ -1126,10 +1151,53 @@ def main():
         print("   basketbol atlandi:", ex, flush=True)
         bb = None
 
+    # ---- tahmin arsivi: mac baslayana kadar son tahmin saklanir, sonra donar ----
+    preds_path = os.path.join(ROOT, "data", "preds.json")
+    preds = cache_read(preds_path) or {}
+    for m in matches:
+        pr_, k_, o_ = tip_of(m)
+        preds[m["id"]] = {"d": m["d"], "lg": m["lg"], "sc": m["p"]["score"], "k": k_, "o": o_,
+                          "p": [m["p"]["p1"], m["p"]["px"], m["p"]["p2"]]}
+    for m in (bb or {}).get("matches", []):
+        k_ = "1" if m["p"]["p1"] >= 0.5 else "2"
+        preds[m["id"]] = {"d": m["d"], "lg": "nba", "sc": m["p"]["score"], "k": k_, "o": m["o"].get(k_),
+                          "p": [m["p"]["p1"], 0, m["p"]["p2"]]}
+    pkeep = (NOW - timedelta(days=45)).strftime("%Y-%m-%d")
+    preds = {k: v for k, v in preds.items() if v["d"][:10] >= pkeep}
+    cache_write(preds_path, preds)
+
+    def attach(rows):
+        for r in rows:
+            pv = preds.get(r["id"])
+            if pv:
+                r["pr"] = {"sc": pv["sc"], "k": pv["k"], "o": pv["o"]}
+
+    attach(results)
+    if bb:
+        attach(bb["results"])
+
+    # ---- sitenin son 30 gunluk isabeti (futbol) ----
+    acc = {"n": 0, "tip": 0, "res": 0, "sc": 0, "lg": {}}
+    since = NOW - timedelta(days=30)
+    for e in done:
+        pv = preds.get(e["id"])
+        if not pv or e["dt"] < since:
+            continue
+        hs, as_ = e["hs"], e["as"]
+        out = 0 if hs > as_ else 1 if hs == as_ else 2
+        t_ok = wins(pv["k"], hs, as_)
+        acc["n"] += 1
+        acc["tip"] += int(t_ok)
+        acc["res"] += int(max(range(3), key=lambda i: pv["p"][i]) == out)
+        acc["sc"] += int(pv["sc"] == [hs, as_])
+        row = acc["lg"].setdefault(e["lg"], [0, 0])
+        row[0] += 1
+        row[1] += int(t_ok)
+
     data = {"updated": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "leagues": [{"id": l["id"], "n": l["n"], "g": l["g"], "cup": l["cup"], "nat": l["nat"], "tier": l["tier"], "tsdb": bool(l["tsdb"])}
                         for l in LEAGUES],
-            "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent}
+            "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

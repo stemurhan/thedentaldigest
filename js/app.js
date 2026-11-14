@@ -27,6 +27,9 @@
   const saveUser = () => { if (user) { LS.set(ukey('coupons'), coupons); LS.set(ukey('balance'), balance); } };
   loadUser();
   const flt = { lg: 'all', day: null, q: '', alim: 48, lvall: false };
+  let FAV = new Set(LS.get('fav', []));
+  const isFavM = m => FAV.has(m.h) || FAV.has(m.a);
+  const lgOk = m => flt.lg === 'all' || (flt.lg === 'fav' ? isFavM(m) : m.lg === flt.lg);
   let dtab = 'pred', ttab = 'all', slipErr = '', navDepth = 0;
 
   const $ = id => document.getElementById(id);
@@ -72,6 +75,10 @@
       : `<span class="${c} ph">${ini}</span>`;
   }
   const pair = (h, a, hn, an) => `<span class="pair" title="${esc(hn)} – ${esc(an)}"><span class="ts">${logo(h, 'sm')}<span class="nm">${esc(hn)}</span></span><span class="sep">–</span><span class="ts">${logo(a, 'sm')}<span class="nm">${esc(an)}</span></span></span>`;
+  const favMark = id => (FAV.has(id) ? '<i class="favm" aria-hidden="true">★</i>' : '');
+  const favBtn = id => `<button type="button" class="fav ${FAV.has(id) ? 'on' : ''}" data-fav="${id}" aria-pressed="${FAV.has(id)}" title="${t(FAV.has(id) ? 'fav_rm' : 'fav_add')}" aria-label="${t(FAV.has(id) ? 'fav_rm' : 'fav_add')}">★</button>`;
+  const SHARE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>';
+  const shareBtn = (act, extra) => `<button type="button" class="shr" data-act="${act}" ${extra || ''} title="${t('share')}" aria-label="${t('share')}">${SHARE_ICON}</button>`;
   const badge = lg => `<span class="cc">${GBADGE[(LG[lg] || {}).g] || 'NBA'}</span>`;
   const srcName = s => (s === 'model' ? 'Ahal365' : s);
   const srcBadge = s => `<span class="srcb ${s === 'model' ? 'm' : ''}">${esc(srcName(s))}</span>`;
@@ -203,7 +210,7 @@
     $('side').innerHTML = html + '</div>';
   }
   function lgChips(ids, always) {
-    return strip(D.leagues.filter(l => ids.has(l.id)).map(l => `<button class="chip ${flt.lg === l.id ? 'on' : ''}" data-lg="${l.id}">${esc(ln(l.id))}</button>`).join(''), always ? '' : 'lgchips');
+    return strip((FAV.size ? `<button class="chip favc ${flt.lg === 'fav' ? 'on' : ''}" data-lg="fav">★ ${t('fav')}</button>` : '') + D.leagues.filter(l => ids.has(l.id)).map(l => `<button class="chip ${flt.lg === l.id ? 'on' : ''}" data-lg="${l.id}">${esc(ln(l.id))}</button>`).join(''), always ? '' : 'lgchips');
   }
 
   // ---------- MollaMyrat'in kuponu (veri betigi uretir, haftalik takip edilir) ----------
@@ -249,7 +256,7 @@
     const c = MOLLA.coupons[0];
     if (!c) return '';
     const tot = c.picks.reduce((p, x) => p * x.o, 1), w = weekStats(0);
-    return `<div class="card tipc"><div class="tipc-h"><b>★ ${t('tipc_title')}</b><small>${fmt(t('tipc_sub'), { n: c.picks.length })} · ${cRange(c)}</small></div>
+    return `<div class="card tipc"><div class="tipc-h">${shareBtn('share-molla', `data-cdate="${c.date}"`)}<b>★ ${t('tipc_title')}</b><small>${fmt(t('tipc_sub'), { n: c.picks.length })} · ${cRange(c)}</small></div>
       ${c.picks.map(x => molRow(x)).join('')}
       <div class="tipc-f"><div class="sum"><span>${t('total_odds')}</span><b class="num">${tot.toFixed(2)}</b></div>
       <div class="sum"><span>${fmt(t('tipc_min'), { s: MIN_STAKE })}</span><b class="num" style="color:var(--pri)">${money(Math.min(MIN_STAKE * tot, MAX_WIN))}</b></div>
@@ -269,7 +276,7 @@
     const cpn = c => {
       const o = c.picks.filter(x => pkOk(x) === true).length, n = c.picks.filter(x => pkOk(x) === false).length;
       const st = n ? 'lost' : (o === c.picks.length ? 'won' : 'pending');
-      return `<div class="card tipc mc"><div class="tipc-h row"><b>${cRange(c)}</b><span class="st ${st}">${t(st)}</span><small class="num">${o} ✓ · ${n} ✗ · ${c.picks.length - o - n} •</small></div>${c.picks.map(x => molRow(x)).join('')}</div>`;
+      return `<div class="card tipc mc"><div class="tipc-h row"><b>${cRange(c)}</b>${shareBtn('share-molla', `data-cdate="${c.date}"`)}<span class="st ${st}">${t(st)}</span><small class="num">${o} ✓ · ${n} ✗ · ${c.picks.length - o - n} •</small></div>${c.picks.map(x => molRow(x)).join('')}</div>`;
     };
     const range = x => `${dayShort(x.a)} – ${dayShort(x.b)}`;
     return `<div class="pagehead"><h1>★ ${t('tipc_title')}</h1><small>${t('m_note')}</small></div>
@@ -277,7 +284,159 @@
       ${c0 && c0.scores && c0.scores.length ? `<div class="card tipc mc"><div class="tipc-h"><b>${t('m_scores')}</b><small>${cRange(c0)}</small></div>${c0.scores.map(x => molRow(x, true)).join('')}</div>` : ''}
       <h2 class="dayhead">${t('m_coupons')}</h2>
       ${w.cs.length ? w.cs.map(cpn).join('') : `<div class="card empty">${t('m_none')}</div>`}
-      ${lw.cs.length ? `<div class="card sec"><h2>${t('m_last')} <small class="mut num">${range(lw)}</small></h2>${box(lw)}</div><details class="lastw"><summary>${t('m_last')} · ${t('m_coupons')}</summary>${lw.cs.map(cpn).join('')}</details>` : ''}`;
+      ${lw.cs.length ? `<div class="card sec"><h2>${t('m_last')} <small class="mut num">${range(lw)}</small></h2>${box(lw)}</div><details class="lastw"><summary>${t('m_last')} · ${t('m_coupons')}</summary>${lw.cs.map(cpn).join('')}</details>` : ''}
+      ${mollaArchive()}
+      <div class="card sec mnotif"><span>🔔 ${t('n_molla_hint')}</span>${notifOn() ? `<b class="mut">${t('notif_enabled')}</b>` : notifSup() && Notification.permission !== 'denied' ? `<button type="button" class="btn" data-act="notif">${t('notif_on')}</button>` : ''}</div>`;
+  }
+
+  // ---------- favori karti, bildirimler ----------
+  function favCard() {
+    const ids = [...FAV].filter(id => D.teams[id]);
+    return `<div class="card sec"><h2>★ ${t('fav_title')}</h2>${ids.length ? `<div class="favl">${ids.map(id => `<span class="favi">${logo(id, 'sm')}<span>${esc(tn(id))}</span><button type="button" data-fav="${id}" aria-label="${t('fav_rm')}" title="${t('fav_rm')}">×</button></span>`).join('')}</div>` : `<p class="mut" style="margin:0">${t('fav_none')}</p>`}</div>`;
+  }
+  const notifSup = () => 'Notification' in window;
+  const notifOn = () => LS.get('notif', false) && notifSup() && Notification.permission === 'granted';
+  function notifCard() {
+    const sup = notifSup(), on = notifOn(), denied = sup && Notification.permission === 'denied';
+    return `<div class="card sec"><h2>🔔 ${t('notif_title')}</h2><p class="mut" style="margin:0 0 10px">${t('notif_desc')}</p>
+      ${!sup ? `<p class="note">${t('notif_unsup')}</p>` : denied ? `<p class="note">${t('notif_denied')}</p>` : `<button type="button" class="btn ${on ? 'ghost' : ''}" data-act="notif">${on ? t('notif_off') : t('notif_on')}</button>`}</div>`;
+  }
+  function notify(title, body, tag) {
+    if (!document.hidden) toast(title + ' · ' + body);
+    if (!notifOn()) return;
+    const opt = { body, icon: 'img/icon.svg', badge: 'img/icon.svg', tag: tag || title, renotify: true };
+    const plain = () => { try { new Notification(title, opt); } catch (e) { /* desteklenmiyor */ } };
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.ready.then(r => r.showNotification(title, opt)).catch(plain);
+    else plain();
+  }
+  async function toggleNotif() {
+    if (notifOn()) { LS.set('notif', false); return render(); }
+    if (!notifSup()) return;
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') { LS.set('notif', true); notify('🔔 ' + t('notif_enabled'), 'Ahal365', 'notif'); }
+    render();
+  }
+
+  // ---------- kuponu paylas: resim + baglanti ----------
+  function rrect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+  function fitText(g, str, w) { if (g.measureText(str).width <= w) return str; while (str.length > 1 && g.measureText(str + '…').width > w) str = str.slice(0, -1); return str + '…'; }
+  function couponCanvas(title, sub, rows, foot) {
+    const W = 1080, RH = 112, top = 236, H = top + rows.length * RH + 300;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d'), F = (w, z) => `${w} ${z}px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+    g.fillStyle = '#0b1220'; g.fillRect(0, 0, W, H);
+    const gr = g.createLinearGradient(0, 0, W, 200); gr.addColorStop(0, '#143326'); gr.addColorStop(1, '#121b2e');
+    g.fillStyle = gr; g.fillRect(0, 0, W, 200);
+    g.fillStyle = '#12c48b'; rrect(g, 60, 52, 96, 96, 24); g.fill();
+    g.fillStyle = '#fff'; g.font = F(800, 64); g.textAlign = 'center'; g.fillText('A', 108, 124);
+    g.textAlign = 'left'; g.font = F(800, 56); g.fillStyle = '#e9eefb'; g.fillText('Ahal', 182, 108);
+    const aw = g.measureText('Ahal').width; g.fillStyle = '#f5b301'; g.fillText('365', 182 + aw, 108);
+    g.font = F(700, 32); g.fillStyle = '#e9eefb'; g.fillText(fitText(g, title, W - 250), 182, 154);
+    g.font = F(500, 26); g.fillStyle = '#8c9bbb'; g.fillText(fitText(g, sub, W - 250), 182, 188);
+    rows.forEach((r, i) => {
+      const y = top + i * RH, right = W - 70 - (r.mark ? 64 : 0);
+      g.fillStyle = i % 2 ? '#121b2e' : '#18233b'; rrect(g, 40, y, W - 80, RH - 14, 20); g.fill();
+      g.font = F(700, 34); g.fillStyle = '#e9eefb'; g.fillText(fitText(g, r.teams, right - 230), 72, y + 46);
+      g.font = F(500, 26); g.fillStyle = '#8c9bbb'; g.fillText(fitText(g, r.sub, right - 230), 72, y + 82);
+      g.font = F(800, 42); g.fillStyle = '#f5b301'; g.textAlign = 'right'; g.fillText(r.o, right, y + 62); g.textAlign = 'left';
+      if (r.mark) {
+        g.fillStyle = r.mark === 'ok' ? '#0d3b2c' : r.mark === 'no' ? '#3f1717' : '#1f2d4a';
+        g.beginPath(); g.arc(W - 92, y + 49, 24, 0, 7); g.fill();
+        g.fillStyle = r.mark === 'ok' ? '#12c48b' : r.mark === 'no' ? '#ff8a80' : '#8c9bbb';
+        g.font = F(800, 28); g.textAlign = 'center'; g.fillText(r.mark === 'ok' ? '✓' : r.mark === 'no' ? '✗' : '•', W - 92, y + 59); g.textAlign = 'left';
+      }
+    });
+    let y = top + rows.length * RH + 30;
+    g.fillStyle = '#121b2e'; rrect(g, 40, y, W - 80, 180, 24); g.fill();
+    const line = (label, val, yy, big) => { g.font = F(500, 30); g.fillStyle = '#8c9bbb'; g.fillText(label, 76, yy); g.font = F(800, big ? 46 : 34); g.fillStyle = big ? '#12c48b' : '#e9eefb'; g.textAlign = 'right'; g.fillText(val, W - 76, yy); g.textAlign = 'left'; };
+    line(t('total_odds'), foot.tot, y + 54);
+    if (foot.stake) line(t('stake'), foot.stake, y + 104);
+    line(t('max_win'), foot.win, y + 156, true);
+    g.font = F(600, 26); g.fillStyle = '#8c9bbb'; g.fillText('thedentaldigest.org', 60, H - 34);
+    g.textAlign = 'right'; g.fillStyle = '#ef5350'; g.fillText('18+', W - 60, H - 34); g.textAlign = 'left';
+    return cv;
+  }
+  async function shareCoupon(title, sub, rows, foot, sels) {
+    const live = (sels || []).filter(x => MATCH[x.m] && future(MATCH[x.m]));
+    const url = location.origin + location.pathname + (live.length ? '#/k/' + encodeURIComponent(live.map(x => x.m + ':' + x.k).join(',')) : '');
+    const cv = couponCanvas(title, sub, rows, foot);
+    const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+    const file = new File([blob], 'ahal365-kupon.png', { type: 'image/png' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Ahal365', text: title + '\n' + url }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    try { await navigator.clipboard.writeText(url); toast(t('share_done') + ' · ' + t('link_copied')); } catch (e) { toast(t('share_done')); }
+  }
+  const mark = ok => (ok === true ? 'ok' : ok === false ? 'no' : 'wait');
+  function shareSlip() {
+    if (!slip.length) return;
+    const st = parseFloat(stake) || MIN_STAKE, tot = totalOdds();
+    shareCoupon(t('coupon') + ' · ' + slip.length + ' ' + t('selections'), dayLabel(dayKey(Date.now())),
+      slip.map(x => { const m = MATCH[x.m]; return { teams: tn(m.h) + ' – ' + tn(m.a), sub: mkLabel(x.k, m) + ' · ' + shortDate(m.d) + ' ' + timeOf(m.d), o: m.o[x.k].toFixed(2) }; }),
+      { tot: tot.toFixed(2), stake: money(st), win: money(Math.min(st * tot, MAX_WIN)) }, slip);
+  }
+  function shareMolla(date) {
+    const c = MOLLA.coupons.find(x => x.date === date) || MOLLA.coupons[0]; if (!c) return;
+    const tot = c.picks.reduce((p, x) => p * x.o, 1);
+    shareCoupon('★ ' + t('tipc_title'), cRange(c) + ' · ' + fmt(t('tipc_sub'), { n: c.picks.length }),
+      c.picks.map(x => ({ teams: pkName(x, 'h') + ' – ' + pkName(x, 'a'), sub: mkLabel(x.k) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: x.o.toFixed(2), mark: mark(pkOk(x)) })),
+      { tot: tot.toFixed(2), stake: money(MIN_STAKE), win: money(Math.min(MIN_STAKE * tot, MAX_WIN)) }, c.picks.map(x => ({ m: x.id, k: x.k })));
+  }
+  function shareUserCoupon(cid) {
+    const c = coupons.find(x => x.id === cid); if (!c) return;
+    const nm = (x, side) => { const id = x[side + 'i']; return id && D.teams[id] ? tn(id) : x[side]; };
+    shareCoupon(t('coupon_no') + ' ' + c.id, t(c.status) + ' · ' + shortDate(c.ts) + ' ' + timeOf(c.ts),
+      c.sels.map(x => ({ teams: nm(x, 'h') + ' – ' + nm(x, 'a'), sub: mkLabel(x.k, null, x.ln) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: x.o.toFixed(2), mark: mark(x.ok) })),
+      { tot: c.odds.toFixed(2), stake: money(c.stake), win: money(c.win) }, c.sels.map(x => ({ m: x.m, k: x.k })));
+  }
+  function loadShared(code) {
+    const want = code.split(',').map(x => { const i = x.lastIndexOf(':'); return { m: x.slice(0, i), k: x.slice(i + 1) }; });
+    const ok = want.filter(x => MATCH[x.m] && future(MATCH[x.m]) && MATCH[x.m].o[x.k]).slice(0, MAX_SEL);
+    if (!ok.length) { toast(t('share_none')); return; }
+    slip = ok; LS.set('slip', slip); slipErr = '';
+    toast(fmt(t('share_loaded'), { n: ok.length }));
+    if (matchMedia('(max-width:860px)').matches) setTimeout(() => document.body.classList.add('slipopen'), 300);
+  }
+
+  // ---------- MollaMyrat arsivi ----------
+  function mollaArchive() {
+    const cs = MOLLA.coupons, A = D.acc || { n: 0, lg: {} };
+    const rate = (o, n) => (o + n ? pct(o / (o + n)) + '%' : '–');
+    let html = `<h2 class="dayhead">📚 ${t('m_archive')}</h2>`;
+    if (cs.length) {
+      const months = {}, lgs = {};
+      cs.forEach(c => {
+        const k = c.date.slice(0, 7), M = months[k] = months[k] || { c: 0, ok: 0, no: 0, full: 0 };
+        let o = 0, n = 0;
+        c.picks.forEach(x => {
+          const r = pkOk(x), L = lgs[x.lg] = lgs[x.lg] || { ok: 0, no: 0 };
+          if (r === true) { o++; L.ok++; } else if (r === false) { n++; L.no++; }
+        });
+        M.c++; M.ok += o; M.no += n; if (o === c.picks.length) M.full++;
+      });
+      const mname = k => { const [y, m] = k.split('-').map(Number); return t('mo_n')[m - 1] + ' ' + y; };
+      html += `<div class="grid2" style="margin-top:0">
+        <div class="card sec"><h2>${t('m_month')}</h2><div class="tblwrap"><table class="tbl"><thead><tr><th class="tn">${t('m_month')}</th><th>${t('m_cpns')}</th><th>✓</th><th>✗</th><th>${t('m_rate')}</th><th>${t('m_full')}</th></tr></thead><tbody>
+          ${Object.keys(months).sort().reverse().map(k => { const M = months[k]; return `<tr><td class="tn">${mname(k)}</td><td>${M.c}</td><td style="color:var(--pri)">${M.ok}</td><td style="color:var(--red)">${M.no}</td><td class="pts">${rate(M.ok, M.no)}</td><td>${M.full}</td></tr>`; }).join('')}</tbody></table></div></div>
+        <div class="card sec"><h2>${t('m_bylg')}</h2><div class="tblwrap"><table class="tbl"><thead><tr><th class="tn">${t('m_lg')}</th><th>✓</th><th>✗</th><th>${t('m_rate')}</th></tr></thead><tbody>
+          ${Object.keys(lgs).sort((a, b) => (lgs[b].ok + lgs[b].no) - (lgs[a].ok + lgs[a].no)).map(k => `<tr><td class="tn">${badge(k)}<span>${esc(ln(k))}</span></td><td style="color:var(--pri)">${lgs[k].ok}</td><td style="color:var(--red)">${lgs[k].no}</td><td class="pts">${rate(lgs[k].ok, lgs[k].no)}</td></tr>`).join('')}</tbody></table></div></div>
+      </div>`;
+      html += `<p class="note">${fmt(t('m_since'), { d: dayShort(cs[cs.length - 1].date) })}</p>`;
+    }
+    if (A.n) {
+      const lgRows = Object.keys(A.lg).sort((a, b) => A.lg[b][0] - A.lg[a][0]).slice(0, 10);
+      html += `<div class="card sec"><h2>${t('m_site')}</h2><div class="kpis">
+        <div class="kpi"><small>${t('m_n')}</small><b>${A.n}</b></div>
+        <div class="kpi"><small>${t('f_tip')}</small><b style="color:var(--pri)">${pct(A.tip / A.n)}%</b></div>
+        <div class="kpi"><small>${t('f_res')}</small><b>${pct(A.res / A.n)}%</b></div>
+        <div class="kpi"><small>${t('f_sc')}</small><b style="color:var(--gold)">${pct(A.sc / A.n)}%</b></div></div>
+        <div class="tblwrap" style="margin-top:12px"><table class="tbl"><thead><tr><th class="tn">${t('m_lg')}</th><th>${t('m_n')}</th><th>${t('f_tip')}</th></tr></thead><tbody>
+        ${lgRows.map(k => `<tr><td class="tn">${badge(k)}<span>${esc(ln(k))}</span></td><td>${A.lg[k][0]}</td><td class="pts">${pct(A.lg[k][1] / A.lg[k][0])}%</td></tr>`).join('')}</tbody></table></div>
+        <p class="note">${t('fin_note')}</p></div>`;
+    }
+    return html;
   }
 
   // ---------- profil / uyelik (demo: bu cihazda saklanir) ----------
@@ -323,7 +482,7 @@
           <label>${t('password2')}<input name="password2" type="password" autocomplete="new-password" required></label>
           <label class="chk"><input name="age" type="checkbox"> <span>${t('age_ok')}</span></label>
           <div class="err" role="alert">${esc(authErr.reg)}</div><button class="btn" type="submit">${t('register')}</button></form>
-      </div><p class="note">${t('demo_acc')}</p>`;
+      </div>${favCard()}${notifCard()}<p class="note">${t('demo_acc')}</p>`;
     }
     const u = users[user], n = k => coupons.filter(c => c.status === k).length;
     return `<div class="pagehead"><h1>${t('profile')}</h1></div>
@@ -337,25 +496,32 @@
           <div class="kpi"><small>${t('lost')}</small><b style="color:var(--red)">${n('lost')}</b></div>
           <div class="kpi"><small>${t('pending')}</small><b>${n('pending')}</b></div></div>
         <div class="prof-a"><a class="btn" href="#/kuponlarim">${t('mycoupons')}</a><button class="btn ghost" data-act="resetbal">${t('reset_balance')}</button></div>
-      </div><p class="note">${t('demo_acc')}</p>`;
+      </div>${favCard()}${notifCard()}<p class="note">${t('demo_acc')}</p>`;
   }
 
   // ---------- bulten ----------
   function viewBulletin() {
     const up = upcoming();
-    const inLg = up.filter(m => flt.lg === 'all' || m.lg === flt.lg);
+    const inLg = up.filter(lgOk);
     const days = pickDay(inLg);
     return `<div class="pagehead"><h1>${t('bulletin')}</h1><small>${t('tznote')}</small></div>
       ${dayStrip(days)}${lgChips(new Set(up.map(m => m.lg)))}
       <div class="searchrow"><input id="q" type="search" placeholder="${t('search')}" value="${esc(flt.q)}" autocomplete="off" aria-label="${t('search')}"></div>
       <details class="tipmob"><summary>★ ${t('tipc_title')}</summary>${tipCoupon()}</details>
+      <div id="favbox">${favBox()}</div>
       <div id="livebox" data-sport="fb">${liveBox('fb')}</div>
       <div id="blist">${bulletinList()}</div>`;
+  }
+  function favBox() {
+    if (!FAV.size || flt.lg !== 'all' || (flt.q || '').trim()) return '';
+    const ms = upcoming().filter(isFavM).sort(byDate).slice(0, 5);
+    if (!ms.length) return '';
+    return `<h2 class="dayhead favhead">★ ${t('fav_next')}</h2><section class="card lgblock favb">${ms.map(m => row(m, true)).join('')}</section>`;
   }
   function bulletinList() {
     const q = flt.q.trim().toLocaleLowerCase();
     const hit = id => { const x = team(id); return (x.n + ' ' + (x[lang] || '')).toLocaleLowerCase().includes(q); };
-    const list = upcoming().filter(m => (flt.lg === 'all' || m.lg === flt.lg)
+    const list = upcoming().filter(m => lgOk(m)
       && (q ? (hit(m.h) || hit(m.a)) : (flt.day === 'all' || dayKey(m.d) === flt.day)));
     if (!list.length) return `<div class="card empty">${t('nomatch')}</div>`;
     let html = '';
@@ -368,11 +534,11 @@
     });
     return html;
   }
-  function row(m) {
+  function row(m, wd) {
     return `<div class="mrow">
       <a class="minfo" href="#/mac/${m.id}">
-        <div class="mtime num">${timeOf(m.d)}<small>${srcBadge(m.src)}</small></div>
-        <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span></div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span></div></div>
+        <div class="mtime num">${wd === true ? `<span class="md">${shortDate(m.d)}</span>` : ''}${timeOf(m.d)}<small>${srcBadge(m.src)}</small></div>
+        <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div></div>
       </a>
       <div class="og c3 ms">${ob(m, '1')}${ob(m, 'X')}${ob(m, '2')}</div>
       <div class="og c2 ou">${ob(m, 'U2.5', t('under'))}${ob(m, 'O2.5', t('over'))}</div>
@@ -385,7 +551,7 @@
   const pbar = p => `<div class="pbar num"><div class="p1" style="flex:${p.p1}">${pct(p.p1)}%</div><div class="px" style="flex:${p.px}">${pct(p.px)}%</div><div class="p2" style="flex:${p.p2}">${pct(p.p2)}%</div></div>`;
   function viewAnalysis() {
     const up = upcoming();
-    const inLg = up.filter(m => flt.lg === 'all' || m.lg === flt.lg);
+    const inLg = up.filter(lgOk);
     const days = pickDay(inLg);
     const list = inLg.filter(m => flt.day === 'all' || dayKey(m.d) === flt.day).sort(byDate);
     let html = `<div class="pagehead"><h1>${t('analysis')}</h1><small>${t('foot_disc')}</small></div>${dayStrip(days)}${lgChips(new Set(up.map(m => m.lg)), true)}`;
@@ -420,9 +586,9 @@
         <div class="hero">
           <div class="meta">${badge(m.lg)} ${esc(ln(m.lg))} · ${dayLabel(dayKey(m.d))} · ${timeOf(m.d)}${m.v ? ' · ' + esc(m.v) : ''}</div>
           <div class="vs">
-            <div class="side-t">${logo(m.h)}<span>${esc(tn(m.h))}</span><span class="frm">${formDots(m.f.h.slice(0, 5).map(x => x.r).reverse())}</span></div>
+            <div class="side-t">${logo(m.h)}<span>${esc(tn(m.h))} ${favBtn(m.h)}</span><span class="frm">${formDots(m.f.h.slice(0, 5).map(x => x.r).reverse())}</span></div>
             <div class="mid" data-lvh="${m.id}">${timeOf(m.d)}<small>${shortDate(m.d)}</small></div>
-            <div class="side-t">${logo(m.a)}<span>${esc(tn(m.a))}</span><span class="frm">${formDots(m.f.a.slice(0, 5).map(x => x.r).reverse())}</span></div>
+            <div class="side-t">${logo(m.a)}<span>${esc(tn(m.a))} ${favBtn(m.a)}</span><span class="frm">${formDots(m.f.a.slice(0, 5).map(x => x.r).reverse())}</span></div>
           </div>
         </div>
         <div class="dtabs" role="tablist">${TABS.map(([k, l]) => `<button role="tab" aria-selected="${dtab === k}" class="${dtab === k ? 'on' : ''}" data-dtab="${k}">${l}</button>`).join('')}</div>
@@ -577,7 +743,7 @@
     const rows = tb[ttab] || tb.all;
     return `<div class="seg" role="tablist">${['all', 'home', 'away'].map(k => `<button class="${ttab === k ? 'on' : ''}" data-ttab="${k}">${t('t_' + k)}</button>`).join('')}</div>
       <div class="tblwrap"><table class="tbl"><thead><tr><th>#</th><th class="tn">${t('th_team')}</th><th>${t('th_p')}</th><th>${t('th_w')}</th><th>${t('th_d')}</th><th>${t('th_l')}</th><th>${t('th_g')}</th><th>${t('th_gd')}</th><th>${t('th_pts')}</th><th>${t('th_form')}</th></tr></thead><tbody>
-      ${rows.map((r, i) => `<tr class="${hl && hl.includes(r.t) ? 'hl' : ''}"><td>${i + 1}</td><td class="tn">${logo(r.t)}<span>${esc(tn(r.t))}</span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf}:${r.ga}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td><td><span class="fr">${formDots(r.f)}</span></td></tr>`).join('')}
+      ${rows.map((r, i) => `<tr class="${hl && hl.includes(r.t) ? 'hl' : ''}"><td>${i + 1}</td><td class="tn">${favBtn(r.t)}${logo(r.t)}<span>${esc(tn(r.t))}</span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf}:${r.ga}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td><td><span class="fr">${formDots(r.f)}</span></td></tr>`).join('')}
       </tbody></table></div>`;
   }
   function viewTables() {
@@ -590,24 +756,47 @@
 
   // ---------- sonuclar ----------
   const resRow = (g, withDate) => `<div class="g"><span class="mut num">${withDate ? shortDate(g.d) : timeOf(g.d)}</span><span class="o">${esc(tn(g.h))} ${logo(g.h, 'sm')}</span><span class="sc">${g.hs} - ${g.as}</span><span class="o">${logo(g.a, 'sm')} ${esc(tn(g.a))}</span></div>`;
+  const predOf = m => {
+    if (!m.p) return null;
+    if (isBB(m)) { const k = m.p.p1 >= .5 ? '1' : '2'; return { sc: m.p.score, k, o: m.o[k] }; }
+    const tp = tipOf(m); return { sc: m.p.score, k: tp.k, o: tp.o };
+  };
+  function finRow(r, bb) {
+    const pr = r.pr, hw = r.hs > r.as, aw = r.as > r.hs;
+    let pred = `<span class="mut fpn">${t('f_nopred')}</span>`;
+    if (pr) {
+      const scOk = pr.sc[0] === r.hs && pr.sc[1] === r.as, tipOk = wins(pr.k, r.hs, r.as);
+      const lbl = bb ? t('ms') + ': ' + pr.k : mkLabel(pr.k);
+      pred = `<span class="fpl ${scOk ? 'ok' : ''}">${t('f_pred')} <b>${pr.sc[0]}-${pr.sc[1]}</b>${scOk ? ' ✓' : ''}</span><span class="fpt ${tipOk ? 'ok' : 'no'}">${esc(lbl)} ${tipOk ? '✓' : '✗'}</span>`;
+    }
+    const lg = bb ? '<span class="cc">NBA</span><span>NBA</span>' : `${badge(r.lg)}<span>${esc(ln(r.lg))}</span>`;
+    return `<div class="frow"><div class="mtime num">${timeOf(r.d)}<small>${t('lv_ft')}</small></div>
+      <div class="mteams"><div class="mlg">${lg}</div>
+        <div class="tm ${hw ? 'w' : ''}">${logo(r.h)}<span>${esc(tn(r.h))}</span>${favMark(r.h)}<b class="ls">${r.hs}</b></div>
+        <div class="tm ${aw ? 'w' : ''}">${logo(r.a)}<span>${esc(tn(r.a))}</span>${favMark(r.a)}<b class="ls">${r.as}</b></div></div>
+      <div class="fp">${pred}</div></div>`;
+  }
   function viewResults() {
-    const known = new Set(D.results.map(r => r.id));
-    const liveRes = liveCands().filter(m => !isBB(m) && LIVE[m.id] && LIVE[m.id].fin && !known.has(m.id))
-      .map(m => ({ id: m.id, lg: m.lg, d: m.d, h: m.h, a: m.a, hs: LIVE[m.id].hs, as: LIVE[m.id].as }));
-    const inLg = liveRes.concat(D.results).filter(r => flt.lg === 'all' || r.lg === flt.lg);
-    const days = [...new Set(inLg.map(r => dayKey(r.d)))].sort().reverse();
-    if (flt.rday === undefined || !days.includes(flt.rday)) flt.rday = days[0];
-    const list = inLg.filter(r => dayKey(r.d) === flt.rday);
-    let html = `<div class="pagehead"><h1>${t('results')}</h1></div>
+    const bb = flt.rsp === 'bb', src = bb ? BB.results : D.results, known = new Set(src.map(r => r.id));
+    const liveRes = liveCands(bb ? 'bb' : 'fb').filter(m => LIVE[m.id] && LIVE[m.id].fin && !known.has(m.id))
+      .map(m => ({ id: m.id, lg: m.lg, d: m.d, h: m.h, a: m.a, hs: LIVE[m.id].hs, as: LIVE[m.id].as, pr: predOf(m) }));
+    const all = liveRes.concat(src).filter(r => bb || lgOk(r));
+    const days = [...new Set(all.map(r => dayKey(r.d)))].sort().reverse();
+    if (!days.includes(flt.rday)) flt.rday = days[0];
+    const list = all.filter(r => dayKey(r.d) === flt.rday).sort((x, y) => byDate(x, y));
+    const wp = list.filter(r => r.pr), tipOk = wp.filter(r => wins(r.pr.k, r.hs, r.as)).length, scOk = wp.filter(r => r.pr.sc[0] === r.hs && r.pr.sc[1] === r.as).length;
+    const A = D.acc || { n: 0 };
+    let html = `<div class="pagehead"><h1>${t('results')}</h1><small>${t('fin_note')}</small></div>
+      <div class="seg" role="tablist">${['fb', 'bb'].map(k => `<button class="${(bb ? 'bb' : 'fb') === k ? 'on' : ''}" data-rsp="${k}">${t('sp_' + k)}</button>`).join('')}</div>
       ${strip(days.map(d => { const p = keyParts(d); return `<button class="chip day ${flt.rday === d ? 'on' : ''}" data-rday="${d}"><small>${relDay(d) || t('wd')[p.wd]}</small>${dayShort(d)}</button>`; }).join(''), 'days')}
-      ${lgChips(new Set(D.results.map(r => r.lg)), true)}`;
+      ${bb ? '' : lgChips(new Set(D.results.map(r => r.lg)), true)}`;
     if (!list.length) return html + `<div class="card empty">${t('nomatch')}</div>`;
-    D.leagues.forEach(l => {
-      const rs = list.filter(r => r.lg === l.id).sort(byDate);
-      if (!rs.length) return;
-      html += `<section class="card lgblock"><div class="lghead">${badge(l.id)}<span>${esc(ln(l.id))}</span></div><div class="pad"><div class="gl h2h">${rs.map(g => resRow(g)).join('')}</div></div></section>`;
-    });
-    return html;
+    html += `<div class="card sec facc" style="margin-top:0"><h2>${t('fin_day')} <small class="mut">${dayLabel(flt.rday)}</small></h2><div class="kpis">
+      <div class="kpi"><small>${t('c_played')}</small><b>${list.length}</b></div>
+      <div class="kpi"><small>${t('f_tip')}</small><b style="color:var(--pri)">${wp.length ? tipOk + '/' + wp.length : '–'}</b></div>
+      <div class="kpi"><small>${t('f_sc')}</small><b style="color:var(--gold)">${wp.length ? scOk + '/' + wp.length : '–'}</b></div>
+      <div class="kpi"><small>${t('fin_30')}</small><b>${!bb && A.n ? pct(A.tip / A.n) + '%' : '–'}</b></div></div></div>`;
+    return html + `<section class="card lgblock">${list.map(r => finRow(r, bb)).join('')}</section>`;
   }
 
   // ---------- basketbol ----------
@@ -629,7 +818,7 @@
     });
     html += `<p class="note">${t('bb_note')}</p>`;
     if (BB.table.length) html += `<div class="card sec"><h2>${t('bb_table')}</h2><div class="tblwrap"><table class="tbl"><thead><tr><th>#</th><th class="tn">${t('th_team')}</th><th>${t('th_p')}</th><th>${t('th_w')}</th><th>${t('th_l')}</th><th>${t('th_pf')}</th><th>${t('th_pa')}</th><th>${t('th_form')}</th></tr></thead><tbody>
-      ${BB.table.map((r, i) => `<tr><td>${i + 1}</td><td class="tn">${logo(r.t)}<span>${esc(tn(r.t))}</span></td><td>${r.p}</td><td class="pts">${r.w}</td><td>${r.l}</td><td>${r.pf.toFixed(1)}</td><td>${r.pa.toFixed(1)}</td><td><span class="fr">${formDots(r.f)}</span></td></tr>`).join('')}</tbody></table></div></div>`;
+      ${BB.table.map((r, i) => `<tr><td>${i + 1}</td><td class="tn">${favBtn(r.t)}${logo(r.t)}<span>${esc(tn(r.t))}</span></td><td>${r.p}</td><td class="pts">${r.w}</td><td>${r.l}</td><td>${r.pf.toFixed(1)}</td><td>${r.pa.toFixed(1)}</td><td><span class="fr">${formDots(r.f)}</span></td></tr>`).join('')}</tbody></table></div></div>`;
     const rs = BB.results.slice(0, 12);
     if (rs.length) html += `<div class="card sec"><h2>${t('results')}</h2><div class="gl h2h">${rs.map(g => resRow(g, true)).join('')}</div></div>`;
     return html;
@@ -648,7 +837,7 @@
     const n = slip.length, tot = n ? totalOdds() : 0;
     document.body.classList.toggle('hasslip', n > 0);
     $('slipbar').innerHTML = `<span class="n">${n}</span><span>${t('coupon')}</span><span class="o num">${tot.toFixed(2)}</span>`;
-    const head = `<div class="sliphead"><span>${t('coupon')}</span><span class="badge">${n}</span><span class="type">${n ? (n === 1 ? t('single') : t('combo')) : ''}</span>${n ? `<button class="clr" data-act="clear">${t('clear')}</button>` : ''}<button class="x" data-act="close" aria-label="×">×</button></div>`;
+    const head = `<div class="sliphead"><span>${t('coupon')}</span><span class="badge">${n}</span>${n ? shareBtn('share-slip') : ''}<span class="type">${n ? (n === 1 ? t('single') : t('combo')) : ''}</span>${n ? `<button class="clr" data-act="clear">${t('clear')}</button>` : ''}<button class="x" data-act="close" aria-label="×">×</button></div>`;
     if (!n) { $('slip').innerHTML = `<div class="card bs">${head}<div class="empty">${t('slip_empty')}</div></div>${sideTip()}`; return; }
     // kompakt satirlar: ayni anda en az 10 mac gorunur; bedel/oyna alani altta sabit kalir
     $('slip').innerHTML = `<div class="card bs">${head}
@@ -731,7 +920,7 @@
       <button class="chip" style="margin-left:auto" data-act="resetbal">${t('reset_balance')}</button></div></div>`;
     if (!coupons.length) return html + `<div class="card empty">${t('no_coupons')}</div>`;
     return html + coupons.map(c => `<div class="card cpn">
-      <div class="cpn-h"><b>${t('coupon_no')}: ${esc(c.id)}</b><span class="st ${c.status}">${t(c.status)}</span><span class="mut num" style="margin-left:auto">${shortDate(c.ts)} ${timeOf(c.ts)}</span></div>
+      <div class="cpn-h"><b>${t('coupon_no')}: ${esc(c.id)}</b>${shareBtn('share-cpn', `data-cid="${esc(c.id)}"`)}<span class="st ${c.status}">${t(c.status)}</span><span class="mut num" style="margin-left:auto">${shortDate(c.ts)} ${timeOf(c.ts)}</span></div>
       ${c.sels.map(s => `<div class="row"><span class="rl">${pair(s.hi, s.ai, nm(s, 'h'), nm(s, 'a'))}<small class="mut">${esc(mkLabel(s.k, null, s.ln))} · ${shortDate(s.d)} ${timeOf(s.d)}${s.res ? ' · ' + esc(s.res) : ''}</small></span><span class="r ${s.ok === true ? 'ok' : s.ok === false ? 'no' : ''}">${s.o.toFixed(2)}</span></div>`).join('')}
       <div class="cpn-f"><span>${t('stake')}: <b>${money(c.stake)}</b></span><span>${t('total_odds')}: <b>${c.odds.toFixed(2)}</b></span><span>${t(c.status === 'won' ? 'payout' : 'max_win')}: <b>${money(c.win)}</b></span></div>
     </div>`).join('');
@@ -764,7 +953,7 @@
     return MATCH[m.id] && !isBB(m) ? `<a class="lrow" href="#/mac/${m.id}">${inner}</a>` : `<div class="lrow">${inner}</div>`;
   }
   function liveBox(sport) {
-    const cs = liveCands(sport).filter(m => sport === 'bb' || flt.lg === 'all' || m.lg === flt.lg);
+    const cs = liveCands(sport).filter(m => sport === 'bb' || lgOk(m)).sort((a, b) => isFavM(b) - isFavM(a) || byDate(a, b));
     if (!cs.length) return '';
     const n = cs.filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post')).length;
     const LIM = 6, show = flt.lvall ? cs : cs.slice(0, LIM);
@@ -787,10 +976,27 @@
       document.querySelectorAll(`.lvn[data-sport="${sp}"]`).forEach(el => { el.textContent = n; el.hidden = !n; });
     });
   }
+  function watched(id) {
+    const m = MATCH[id] || RECENT.find(x => x.id === id);
+    if (m && isFavM(m)) return true;
+    if (slip.some(x => x.m === id)) return true;
+    if (coupons.some(c => c.status === 'pending' && c.sels.some(x => x.m === id))) return true;
+    return !!(MOLLA.coupons[0] && MOLLA.coupons[0].picks.some(x => x.id === id));
+  }
+  function setLive(id, v) {
+    const prev = LIVE[id];
+    LIVE[id] = v;
+    if (!prev || !watched(id)) return;
+    const m = MATCH[id] || RECENT.find(x => x.id === id);
+    if (!m) return;
+    const sc = `${tn(m.h)} ${v.hs}-${v.as} ${tn(m.a)}`;
+    if (v.hs + v.as > prev.hs + prev.as) notify((isBB(m) ? '🏀 ' : '⚽ ') + t('n_goal') + (v.c ? ' ' + v.c : ''), sc, 'g' + id);
+    else if (v.s === 'post' && prev.s === 'in') notify('🏁 ' + t('n_ft'), sc, 'f' + id);
+  }
   const ymd = ms => new Date(ms).toISOString().slice(0, 10).replace(/-/g, '');
   let polling = false;
   async function pollLive() {
-    if (polling || document.hidden) return;
+    if (polling || (document.hidden && !notifOn())) return;
     const cs = liveCands().filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post'));
     if (!cs.length) return;
     polling = true;
@@ -805,8 +1011,8 @@
           const st = String(e.strStatus || '').toUpperCase();
           if (!st || st === 'NS' || st === 'NOT STARTED' || /POSTP|CANC|ABAN/.test(st) || e.intHomeScore == null) return;
           const fin = ['FT', 'AET', 'PEN', 'MATCH FINISHED'].includes(st);
-          LIVE[id] = { s: fin ? 'post' : 'in', hs: +e.intHomeScore || 0, as: +e.intAwayScore || 0,
-            c: fin ? '' : st === 'HT' ? t('ht') : (e.strProgress ? e.strProgress + "'" : st), fin: st === 'FT' || st === 'MATCH FINISHED' };
+          setLive(id, { s: fin ? 'post' : 'in', hs: +e.intHomeScore || 0, as: +e.intAwayScore || 0,
+            c: fin ? '' : st === 'HT' ? t('ht') : (e.strProgress ? e.strProgress + "'" : st), fin: st === 'FT' || st === 'MATCH FINISHED' });
         }).catch(() => { }));
         return;
       }
@@ -821,9 +1027,9 @@
           if (!st || st.state === 'pre' || /POSTPON|CANCEL|ABANDON|SUSPEND|DELAY/.test(st.name || '')) return;
           const c = e.competitions[0].competitors, h = c.find(x => x.homeAway === 'home'), a = c.find(x => x.homeAway === 'away');
           const id = (lg === 'nba' ? 'b' : '') + e.id;
-          LIVE[id] = { s: st.state === 'post' ? 'post' : 'in', hs: +h.score || 0, as: +a.score || 0,
+          setLive(id, { s: st.state === 'post' ? 'post' : 'in', hs: +h.score || 0, as: +a.score || 0,
             c: st.state === 'post' ? '' : /HALFTIME/.test(st.name) ? t('ht') : (lg === 'nba' ? st.shortDetail : e.status.displayClock) || '',
-            fin: st.name === 'STATUS_FULL_TIME' || st.name === 'STATUS_FINAL' };
+            fin: st.name === 'STATUS_FULL_TIME' || st.name === 'STATUS_FINAL' });
         });
       }).catch(() => { }));
     }));
@@ -849,6 +1055,8 @@
   let lastRoute = null;
   function render() {
     const h = location.hash || '#/';
+    const km = h.match(/^#\/k\/(.+)$/);
+    if (km) { loadShared(decodeURIComponent(km[1])); location.replace('#/'); return; }
     const mm = h.match(/^#\/mac\/(\w+)/);
     let html, title;
     if (mm) { html = viewMatch(mm[1]); const m = MATCH[mm[1]]; title = m ? tn(m.h) + ' – ' + tn(m.a) : t('bulletin'); }
@@ -881,6 +1089,19 @@
     if (d.day) { flt.day = d.day; flt.q = ''; flt.alim = 48; return render(); }
     if (d.rday) { flt.rday = d.rday; return render(); }
     if (d.dtab) { dtab = d.dtab; return render(); }
+    if (d.fav) {
+      const id = d.fav, on = !FAV.has(id);
+      if (on) FAV.add(id); else FAV.delete(id);
+      LS.set('fav', [...FAV]);
+      if (!FAV.size && flt.lg === 'fav') flt.lg = 'all';
+      toast(fmt(t(on ? 'fav_added' : 'fav_removed'), { n: tn(id) }));
+      const y = scrollY; render(); scrollTo(0, y); return;
+    }
+    if (d.rsp) { flt.rsp = d.rsp; flt.rday = undefined; return render(); }
+    if (d.act === 'notif') return toggleNotif();
+    if (d.act === 'share-slip') return shareSlip();
+    if (d.act === 'share-molla') return shareMolla(d.cdate);
+    if (d.act === 'share-cpn') return shareUserCoupon(d.cid);
     if (d.ttab) { ttab = d.ttab; return render(); }
     if (d.rm) return toggleSel(d.rm, (slip.find(s => s.m === d.rm) || {}).k);
     if (d.q) { stake = +d.q; LS.set('stake', stake); const i = $('stake'); if (i) i.value = stake; slipErr = ''; $('s-err').textContent = ''; return updWin(); }
@@ -922,6 +1143,12 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape') document.body.classList.remove('slipopen'); });
 
   cleanSlip(); settle(); render();
+  (function () {   // yeni MollaMyrat kuponu haber ver (ilk ziyarette degil)
+    const c = MOLLA.coupons[0]; if (!c) return;
+    const seen = LS.get('mseen', null);
+    if (seen && seen !== c.date) setTimeout(() => notify('★ ' + t('n_molla'), cRange(c) + ' · ' + c.picks.length + ' ' + t('selections'), 'molla'), 1500);
+    LS.set('mseen', c.date);
+  })();
   pollLive(); setInterval(pollLive, 60e3);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) pollLive(); });
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { });
