@@ -1,0 +1,49 @@
+name: Bulten guncelle
+
+on:
+  schedule:
+    - cron: "0 2 * * *"    # 07:00 Askabat - gunun bulteni ve MollaMyrat kuponu
+    - cron: "0 10 * * *"   # 15:00 Askabat - oran ve sonuc yenileme
+    - cron: "0 18 * * *"   # 23:00 Askabat - aksam sonuclari
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bulten
+  cancel-in-progress: false
+
+jobs:
+  guncelle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Onbellek (gecmis maclar, kadrolar, ceviriler)
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: bulten-cache-${{ github.run_id }}
+          restore-keys: bulten-cache-
+      - name: Bulteni guncelle
+        run: python scripts/update.py
+      - name: Degisiklikleri yayinla
+        run: |
+          git config user.name "ahal365-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then exit 0; fi
+          # Depo sismesin: veri islemesi tek bir "Bulten guncellendi" kaydi olarak yenilenir
+          if [ "$(git log -1 --pretty=%s)" = "Bulten guncellendi" ]; then
+            git commit --amend --no-edit --date=now
+            git push --force-with-lease
+          else
+            git commit -m "Bulten guncellendi"
+            git push
+          fi
