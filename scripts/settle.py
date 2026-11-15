@@ -12,6 +12,7 @@ import gzip
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -115,6 +116,7 @@ def main():
         if mid in results:
             continue
         if mid.startswith("T"):
+            time.sleep(2.6)                 # TheSportsDB pes pese istekleri reddeder
             try:
                 e = (http(f"https://www.thesportsdb.com/api/v1/json/123/lookupevent.php?id={mid[1:]}").get("events") or [None])[0]
                 if e and str(e.get("strStatus", "")).upper() in ("FT", "MATCH FINISHED") and e.get("intHomeScore") is not None:

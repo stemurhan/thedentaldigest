@@ -1329,6 +1329,14 @@
     if (v.hs + v.as > prev.hs + prev.as) notify((isBB(m) ? '🏀 ' : '⚽ ') + t('n_goal') + (v.c ? ' ' + v.c : ''), sc, 'g' + id);
     else if (v.s === 'post' && prev.s === 'in') notify('🏁 ' + t('n_ft'), sc, 'f' + id);
   }
+  function tsApply(e) {
+    const id = 'T' + e.idEvent, st = String(e.strStatus || '').toUpperCase();
+    if (!MATCH[id] && !RECENT.some(x => x.id === id)) return;
+    if (!st || st === 'NS' || st === 'NOT STARTED' || /POSTP|CANC|ABAN/.test(st) || e.intHomeScore == null) return;
+    const fin = ['FT', 'AET', 'PEN', 'MATCH FINISHED'].includes(st);
+    setLive(id, { s: fin ? 'post' : 'in', hs: +e.intHomeScore || 0, as: +e.intAwayScore || 0,
+      c: fin ? '' : st === 'HT' ? t('ht') : (e.strProgress ? e.strProgress + "'" : st), fin: st === 'FT' || st === 'MATCH FINISHED' });
+  }
   const ymd = ms => new Date(ms).toISOString().slice(0, 10).replace(/-/g, '');
   let polling = false;
   async function pollLive() {
@@ -1336,20 +1344,12 @@
     const cs = liveCands().filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post'));
     if (!cs.length) return;
     polling = true;
-    const want = {}, jobs = [];
+    const want = {}, jobs = [], tsQ = {};
     cs.forEach(m => {
       const id = String(m.id);
-      if (id[0] === 'T') {          // TheSportsDB (Turkiye / Rusya alt ligleri)
-        if (Date.now() - (tsLast[id] || 0) < 110e3) return;
-        tsLast[id] = Date.now();
-        jobs.push(fetch('https://www.thesportsdb.com/api/v1/json/123/lookupevent.php?id=' + id.slice(1)).then(r => r.json()).then(d => {
-          const e = (d.events || [])[0]; if (!e) return;
-          const st = String(e.strStatus || '').toUpperCase();
-          if (!st || st === 'NS' || st === 'NOT STARTED' || /POSTP|CANC|ABAN/.test(st) || e.intHomeScore == null) return;
-          const fin = ['FT', 'AET', 'PEN', 'MATCH FINISHED'].includes(st);
-          setLive(id, { s: fin ? 'post' : 'in', hs: +e.intHomeScore || 0, as: +e.intAwayScore || 0,
-            c: fin ? '' : st === 'HT' ? t('ht') : (e.strProgress ? e.strProgress + "'" : st), fin: st === 'FT' || st === 'MATCH FINISHED' });
-        }).catch(() => { }));
+      if (id[0] === 'T') {          // TheSportsDB (alt ligler): mac basina degil, tur basina tek istek
+        const key = m.tr ? m.tr.join('|') : id;
+        if (!tsQ[key] && Date.now() - (tsLast[key] || 0) >= 110e3) tsQ[key] = m.tr || id;
         return;
       }
       const lg = isBB(m) ? 'nba' : m.lg, t0 = new Date(m.d).getTime();
@@ -1369,6 +1369,21 @@
         });
       }).catch(() => { }));
     }));
+    // TheSportsDB pes pese istekleri reddeder (429): istekler sirayla ve aralikli gider
+    const tsKeys = Object.keys(tsQ).sort((x, y) => (tsQ[y] instanceof Array) - (tsQ[x] instanceof Array)).slice(0, 6);
+    if (tsKeys.length) (async () => {
+      for (let i = 0; i < tsKeys.length; i++) {
+        const k = tsKeys[i], q = tsQ[k];
+        if (i) await new Promise(r => setTimeout(r, 2600));
+        tsLast[k] = Date.now();
+        const url = 'https://www.thesportsdb.com/api/v1/json/123/' + (q instanceof Array
+          ? `eventsround.php?id=${q[0]}&r=${q[1]}&s=${q[2]}` : 'lookupevent.php?id=' + q.slice(1));
+        try {
+          const d = await fetch(url).then(r => (r.ok ? r.json() : Promise.reject(r.status)));
+          (d.events || []).forEach(tsApply);
+        } catch (e) { tsLast[k] = Date.now() + 60e3; break; }   // sinir asildi: bu turu birak, sonra dene
+      }
+    })().then(liveChanged);
     await Promise.all(jobs);
     polling = false;
     liveChanged();

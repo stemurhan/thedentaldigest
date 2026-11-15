@@ -271,6 +271,8 @@ def tsdb_events(lg):
             if d is None:
                 # gecici hata: onbellekte ne varsa onu kullan, sonraki tura gec
                 fails += 1
+                for e in (c or {}).get("ev", []):
+                    e["tr"] = [lid, rnd, season]
                 out.extend((c or {}).get("ev", []))
                 if fails >= 3:
                     break
@@ -300,6 +302,8 @@ def tsdb_events(lg):
                 cache_write(path, {"ts": time.time(), "ev": evs})
         if not evs:
             break
+        for e in evs:
+            e["tr"] = [lid, rnd, season]      # canli skor: tarayici tum turu tek istekle okur
         out.extend(evs)
     return out
 
@@ -1440,6 +1444,8 @@ def main():
                "st": {"h": dict(st[hid]["home"]), "a": dict(st[aid]["away"])},
                "sq": {"h": squad(hid, lid) if detail else None, "a": squad(aid, lid) if detail else None},
                "pl": {"h": rosters.get((lid, hid), []), "a": rosters.get((lid, aid), [])}}
+        if m.get("tr"):
+            rec["tr"] = m["tr"]
         matches.append(rec)
 
     cutoff = NOW - timedelta(days=RESULT_DAYS)
@@ -1467,6 +1473,8 @@ def main():
         use(e["h"]["id"])
         use(e["a"]["id"])
         recent.append({"id": e["id"], "lg": e["lg"], "d": e["d"], "h": e["h"]["id"], "a": e["a"]["id"]})
+        if e.get("tr"):
+            recent[-1]["tr"] = e["tr"]
     molla_data = molla(matches, {e["id"]: e for e in done}, src_team, use)
     nat_ids = {e[s]["id"] for e in allev if LGMAP[e["lg"]]["nat"] for s in ("h", "a")}
     team_country = {e[s]["id"]: LG_COUNTRY[e["lg"]] for e in allev if e["lg"] in LG_COUNTRY for s in ("h", "a")}
