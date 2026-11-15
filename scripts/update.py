@@ -76,7 +76,9 @@ LEAGUES = [
     L("fra.2", "Ligue 2 (2. Lig)", "Лига 2 (Франция)", "Liga 2 (Fransiýa)", "fr", tier=2),
     L("ned.1", "Eredivisie", "Эредивизи", "Eredivisie", "nl"),
     L("ned.2", "Eerste Divisie (2. Lig)", "Первый дивизион (2-я лига)", "Eerste Divisie (2-nji liga)", "nl", tier=2),
-    L("por.1", "Primeira Liga", "Примейра-лига", "Primeýra-liga", "ot"),
+    L("por.1", "Portekiz Ligi (Primeira Liga)", "Чемпионат Португалии (Примейра)", "Portugaliýa ligasy (Primeýra)", "pt"),
+    # Portekiz 2. ligi: TheSportsDB (ESPN akisinda yok)
+    L("por.2", "Portekiz 2. Lig (Liga Portugal 2)", "Вторая лига Португалии", "Portugaliýa 2-nji ligasy", "pt", tier=2, tsdb=4662),
     L("bel.1", "Belçika Pro Lig", "Про-лига Бельгии", "Belgiýa Pro-ligasy", "ot"),
     L("sco.1", "İskoçya Premiership", "Премьершип Шотландии", "Şotlandiýa Premýerşipi", "ot"),
 ]
@@ -578,7 +580,7 @@ WD_UA = "bulletin-updater/1.0 (python-urllib)"
 LG_COUNTRY = {"tur.1": "Q43", "tur.2": "Q43", "tur.3": "Q43", "rus.1": "Q159", "rus.2": "Q159",
               "eng.1": "Q145", "eng.2": "Q145", "eng.3": "Q145", "eng.4": "Q145", "sco.1": "Q145",
               "esp.1": "Q29", "esp.2": "Q29", "ger.1": "Q183", "ger.2": "Q183", "ita.1": "Q38", "ita.2": "Q38",
-              "fra.1": "Q142", "fra.2": "Q142", "ned.1": "Q55", "ned.2": "Q55", "por.1": "Q45", "bel.1": "Q31"}
+              "fra.1": "Q142", "fra.2": "Q142", "ned.1": "Q55", "ned.2": "Q55", "por.1": "Q45", "por.2": "Q45", "bel.1": "Q31"}
 # Avrupa kupalarina katilan diger ulkeler
 EURO_Q = ["Q41", "Q40", "Q39", "Q213", "Q36", "Q212", "Q35", "Q34", "Q20", "Q224", "Q403", "Q218", "Q219",
           "Q28", "Q229", "Q801", "Q227", "Q232", "Q214", "Q215", "Q33", "Q27", "Q225", "Q217", "Q399", "Q230",
@@ -842,6 +844,65 @@ def phi(x):
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
+def bb_wins(k, hs, as_, line):
+    if k == "1":
+        return hs > as_
+    if k == "2":
+        return hs < as_
+    return hs + as_ > line if k == "BO" else hs + as_ < line
+
+
+BB_TS = {"avgPoints": "ppg", "avgPointsAgainst": "opp", "fieldGoalPct": "fg", "threePointFieldGoalPct": "tp",
+         "avgRebounds": "reb", "avgAssists": "ast", "avgSteals": "stl", "avgBlocks": "blk",
+         "avgTotalTurnovers": "to", "Last Ten Games": "l10", "streak": "strk"}
+BB_LEAD = {"pointsPerGame": "pts", "assistsPerGame": "ast", "reboundsPerGame": "reb"}
+
+
+def bb_summary(eid):
+    """Mac onizlemesi: takim liderleri, sakat/eksik oyuncular, takim istatistikleri."""
+    path = os.path.join(CACHE, "bbs", eid + ".json")
+    c = cache_read(path)
+    if c and time.time() - c.get("ts", 0) < 5 * 3600:
+        return eid, c["v"]
+    d = get(f"{BB_SITE}summary?event={eid}")
+    if d is None:
+        return eid, (c or {}).get("v", {})
+    res = {}
+
+    def slot(x):
+        return res.setdefault(str((x.get("team") or {}).get("id")), {"pl": [], "inj": [], "ts": {}})
+
+    def ath(a):
+        return {"n": fx(a.get("displayName") or a.get("fullName") or ""), "j": a.get("jersey") or "",
+                "p": (a.get("position") or {}).get("abbreviation") or ""}
+
+    for grp in d.get("leaders") or []:
+        s = slot(grp)
+        for cat in grp.get("leaders") or []:
+            top = (cat.get("leaders") or [None])[0]
+            k = BB_LEAD.get(cat.get("name"))
+            if not top or not k:
+                continue
+            row = ath(top.get("athlete") or {})
+            if row["n"]:
+                s["pl"].append(dict(row, k=k, v=str(top.get("displayValue") or "")))
+    for grp in d.get("injuries") or []:
+        s = slot(grp)
+        for x in (grp.get("injuries") or [])[:8]:
+            row = ath(x.get("athlete") or {})
+            if row["n"]:
+                s["inj"].append({"n": row["n"], "p": row["p"], "s": x.get("status") or "",
+                                 "t": fx((x.get("details") or {}).get("type") or "")})
+    for grp in (d.get("boxscore") or {}).get("teams") or []:
+        s = slot(grp)
+        for x in grp.get("statistics") or []:
+            k = BB_TS.get(x.get("name"))
+            if k and x.get("displayValue") not in (None, ""):
+                s["ts"][k] = str(x["displayValue"])
+    cache_write(path, {"ts": time.time(), "v": res})
+    return eid, res
+
+
 def basketball():
     start = datetime(NOW.year if NOW.month >= 9 else NOW.year - 1, 10, 1, tzinfo=timezone.utc)
     days, d = [], start
@@ -860,34 +921,54 @@ def basketball():
           and NOW - timedelta(hours=1) <= e["dt"] <= NOW + timedelta(days=7)]
     if not done and not up:
         return None
-    st = defaultdict(lambda: {"p": 0, "w": 0, "pf": 0, "pa": 0, "f": []})
+    new = lambda: {"p": 0, "w": 0, "pf": 0, "pa": 0, "f": []}
+    st = defaultdict(lambda: {"all": new(), "home": new(), "away": new()})
+    by_team = defaultdict(list)
     tot = n = 0
     for g in done:
         tot += g["hs"] + g["as"]
         n += 1
-        for tid, pf, pa in ((g["h"]["id"], g["hs"], g["as"]), (g["a"]["id"], g["as"], g["hs"])):
-            s = st[tid]
-            s["p"] += 1
-            s["w"] += pf > pa
-            s["pf"] += pf
-            s["pa"] += pa
-            s["f"].append("W" if pf > pa else "L")
+        by_team[g["h"]["id"]].append(g)
+        by_team[g["a"]["id"]].append(g)
+        for side, tid, pf, pa in (("home", g["h"]["id"], g["hs"], g["as"]), ("away", g["a"]["id"], g["as"], g["hs"])):
+            for k in ("all", side):
+                s = st[tid][k]
+                s["p"] += 1
+                s["w"] += pf > pa
+                s["pf"] += pf
+                s["pa"] += pa
+                s["f"].append("W" if pf > pa else "L")
     avg = tot / (2 * n) if n else 113.0
     K = 3.0
 
     def rate(v, p):
         return (v + K * avg) / (p + K)
 
+    def form_of(tid, k=6):
+        out = []
+        for g in by_team[tid][-k:][::-1]:
+            home = g["h"]["id"] == tid
+            gf, ga = (g["hs"], g["as"]) if home else (g["as"], g["hs"])
+            out.append({"d": g["d"], "lg": "nba", "o": "b" + g["a" if home else "h"]["id"],
+                        "ha": "H" if home else "A", "gf": gf, "ga": ga, "r": "W" if gf > ga else "L"})
+        return out
+
+    def split(s):
+        return {"p": s["p"], "w": s["w"], "l": s["p"] - s["w"], "pf": s["pf"], "pa": s["pa"]}
+
     teams = {}
     for e in allev:
         for s in ("h", "a"):
             teams["b" + e[s]["id"]] = {"n": e[s]["n"], "s": e[s]["s"], "l": e[s]["l"]}
     odds = dict(pmap(load_odds, up))
+    summ = dict(pmap(bb_summary, [m["id"] for m in up]))
     matches = []
     for m in up:
-        h, a = st[m["h"]["id"]], st[m["a"]["id"]]
+        hid, aid = m["h"]["id"], m["a"]["id"]
+        h, a = st[hid]["all"], st[aid]["all"]
         eh = avg + (rate(h["pf"], h["p"]) - avg) + (rate(a["pa"], a["p"]) - avg) + 1.6
         ea = avg + (rate(a["pf"], a["p"]) - avg) + (rate(h["pa"], h["p"]) - avg) - 1.6
+        model = [round(eh, 1), round(ea, 1)]
         alt = (odds.get(m["id"]) or {}).get("alt")
         if alt:
             i1, i2 = 1 / alt["1"], 1 / alt["2"]
@@ -916,22 +997,45 @@ def basketball():
             o["BO"], o["BU"] = alt["O"], alt["U"]
         else:
             line = round(total) + 0.5
-            po = 1 - phi((line - total) / 18.5)
+        po = 1 - phi((line - total) / 18.5)
+        if "BO" not in o:
             o["BO"], o["BU"] = odd(po), odd(1 - po)
         sh, sa = round(eh), round(ea)
         if sh == sa:
             sh += 1 if p1 >= 0.5 else -1
-        matches.append({"id": "b" + m["id"], "sport": "bb", "d": m["d"], "h": "b" + m["h"]["id"],
-                        "a": "b" + m["a"]["id"], "v": m["v"], "src": src, "o": o, "line": line,
-                        "p": {"p1": round(p1, 4), "p2": round(1 - p1, 4), "score": [sh, sa], "total": round(total, 1)}})
+        # oneri: tahmini skorla celismeyen, olasiligi en yuksek pazar
+        c = [(p1, "1"), (1 - p1, "2"), (po, "BO"), (1 - po, "BU")]
+        c = [(p, k, o[k]) for p, k in c if o.get(k)]
+        c = [x for x in c if bb_wins(x[1], sh, sa, line)] or c
+        c = [x for x in c if x[2] >= 1.3] or c
+        tp = max(c)
+        h2h = [{"d": g["d"], "lg": "nba", "h": "b" + g["h"]["id"], "a": "b" + g["a"]["id"], "hs": g["hs"], "as": g["as"]}
+               for g in by_team[hid] if {g["h"]["id"], g["a"]["id"]} == {hid, aid}][-6:][::-1]
+        sm = summ.get(m["id"]) or {}
+        side = lambda tid, k, dflt: (sm.get(tid) or {}).get(k) or dflt
+        matches.append({"id": "b" + m["id"], "sport": "bb", "lg": "nba", "d": m["d"], "h": "b" + hid,
+                        "a": "b" + aid, "v": m["v"], "src": src, "o": o, "line": line,
+                        "p": {"p1": round(p1, 4), "p2": round(1 - p1, 4), "score": [sh, sa], "total": round(total, 1),
+                              "margin": round(eh - ea, 1), "po": round(po, 4), "model": model},
+                        "tip": {"k": tp[1], "p": round(tp[0], 4), "o": tp[2]},
+                        "f": {"h": form_of(hid), "a": form_of(aid)}, "h2h": h2h,
+                        "st": {"h": split(st[hid]["home"]), "a": split(st[aid]["away"]),
+                               "ha": split(st[hid]["all"]), "aa": split(st[aid]["all"])},
+                        "pl": {"h": side(hid, "pl", []), "a": side(aid, "pl", [])},
+                        "inj": {"h": side(hid, "inj", []), "a": side(aid, "inj", [])},
+                        "ts": {"h": side(hid, "ts", {}), "a": side(aid, "ts", {})}})
     cutoff = NOW - timedelta(days=RESULT_DAYS)
-    results = [{"id": "b" + e["id"], "d": e["d"], "h": "b" + e["h"]["id"], "a": "b" + e["a"]["id"],
+    results = [{"id": "b" + e["id"], "lg": "nba", "d": e["d"], "h": "b" + e["h"]["id"], "a": "b" + e["a"]["id"],
                 "hs": e["hs"], "as": e["as"]} for e in done if e["dt"] >= cutoff][::-1]
-    table = sorted(({"t": "b" + tid, "p": s["p"], "w": s["w"], "l": s["p"] - s["w"],
-                     "pf": round(s["pf"] / s["p"], 1), "pa": round(s["pa"] / s["p"], 1), "f": s["f"][-5:]}
-                    for tid, s in st.items() if s["p"]), key=lambda r: (-r["w"] / r["p"], -r["w"]))
+    tables = {}
+    for k in ("all", "home", "away"):
+        tables[k] = sorted(({"t": "b" + tid, "p": s[k]["p"], "w": s[k]["w"], "l": s[k]["p"] - s[k]["w"],
+                             "pf": round(s[k]["pf"] / s[k]["p"], 1), "pa": round(s[k]["pa"] / s[k]["p"], 1),
+                             "f": s[k]["f"][-5:]} for tid, s in st.items() if s[k]["p"]),
+                           key=lambda r: (-r["w"] / r["p"], -r["w"], -(r["pf"] - r["pa"])))
     print(f"   NBA: {len(matches)} mac, {len(results)} sonuc", flush=True)
-    return {"teams": teams, "matches": matches, "results": results, "table": table}
+    return {"teams": teams, "matches": matches, "results": results, "table": tables["all"], "tables": tables,
+            "_done": {"b" + e["id"]: e for e in done}}
 
 
 # ---- Ana akis --------------------------------------------------------------
@@ -1159,9 +1263,8 @@ def main():
         preds[m["id"]] = {"d": m["d"], "lg": m["lg"], "sc": m["p"]["score"], "k": k_, "o": o_,
                           "p": [m["p"]["p1"], m["p"]["px"], m["p"]["p2"]]}
     for m in (bb or {}).get("matches", []):
-        k_ = "1" if m["p"]["p1"] >= 0.5 else "2"
-        preds[m["id"]] = {"d": m["d"], "lg": "nba", "sc": m["p"]["score"], "k": k_, "o": m["o"].get(k_),
-                          "p": [m["p"]["p1"], 0, m["p"]["p2"]]}
+        preds[m["id"]] = {"d": m["d"], "lg": "nba", "sc": m["p"]["score"], "k": m["tip"]["k"], "o": m["tip"]["o"],
+                          "ln": m["line"], "p": [m["p"]["p1"], 0, m["p"]["p2"]]}
     pkeep = (NOW - timedelta(days=45)).strftime("%Y-%m-%d")
     preds = {k: v for k, v in preds.items() if v["d"][:10] >= pkeep}
     cache_write(preds_path, preds)
@@ -1183,6 +1286,8 @@ def main():
             pv = preds.get(r["id"])
             if pv:
                 r["pr"] = {"sc": pv["sc"], "k": pv["k"], "o": pv["o"]}
+                if "ln" in pv:
+                    r["pr"]["ln"] = pv["ln"]
 
     attach(results)
     if bb:
@@ -1206,10 +1311,20 @@ def main():
         row[0] += 1
         row[1] += int(t_ok)
 
+    # ---- son 30 gunluk isabet (basketbol) ----
+    accbb = {"n": 0, "tip": 0, "res": 0}
+    for bid, e in ((bb or {}).pop("_done", None) or {}).items():
+        pv = preds.get(bid)
+        if not pv or e["dt"] < since:
+            continue
+        accbb["n"] += 1
+        accbb["tip"] += int(bb_wins(pv["k"], e["hs"], e["as"], pv.get("ln", 0)))
+        accbb["res"] += int((pv["p"][0] >= pv["p"][2]) == (e["hs"] > e["as"]))
+
     data = {"updated": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "leagues": [{"id": l["id"], "n": l["n"], "g": l["g"], "cup": l["cup"], "nat": l["nat"], "tier": l["tier"], "tsdb": bool(l["tsdb"])}
                         for l in LEAGUES],
-            "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc}
+            "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

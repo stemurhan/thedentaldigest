@@ -5,8 +5,8 @@
   const BB = D.bb || { teams: {}, matches: [], results: [], table: [] };
   const TZ = 'Asia/Ashgabat', CUR = 'TMT';
   const MIN_STAKE = 20, MAX_STAKE = 5000, MAX_SEL = 20, MAX_WIN = 500000, START_BAL = 1000, TIP_N = 10;
-  const GROUPS = ['tr', 'ru', 'eu', 'nat', 'en', 'es', 'de', 'it', 'fr', 'nl', 'ot'];
-  const GBADGE = { tr: 'TR', ru: 'RU', eu: 'UEFA', nat: 'INT', en: 'ENG', es: 'ESP', de: 'GER', it: 'ITA', fr: 'FRA', nl: 'NED', ot: 'EUR' };
+  const GROUPS = ['tr', 'ru', 'eu', 'nat', 'en', 'es', 'de', 'it', 'fr', 'nl', 'pt', 'ot'];
+  const GBADGE = { tr: 'TR', ru: 'RU', eu: 'UEFA', nat: 'INT', en: 'ENG', es: 'ESP', de: 'GER', it: 'ITA', fr: 'FRA', nl: 'NED', pt: 'POR', ot: 'EUR' };
 
   const LS = {
     get(k, d) { try { const v = localStorage.getItem('ahal_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -77,7 +77,7 @@
 
   // ---------- veri yardimcilari ----------
   Object.assign(D.teams, BB.teams);
-  const MATCH = {}; D.matches.concat(BB.matches).forEach(m => { MATCH[m.id] = m; if (!m.pl) m.pl = { h: [], a: [] }; if (!m.sq) m.sq = { h: null, a: null }; });
+  const MATCH = {}; D.matches.concat(BB.matches).forEach(m => { MATCH[m.id] = m; if (!m.pl) m.pl = { h: [], a: [] }; if (!m.sq) m.sq = { h: null, a: null }; if (!m.f) m.f = { h: [], a: [] }; if (!m.h2h) m.h2h = []; });
   const LG = {}; D.leagues.forEach(l => { LG[l.id] = l; });
   const RES = {}; D.results.concat(BB.results).forEach(r => { RES[r.id] = r; });
   const team = id => D.teams[id] || { n: '?', s: '?', l: '' };
@@ -157,6 +157,12 @@
   }
   function tipOf(m) {
     if (m._tip) return m._tip;
+    if (m.sport === 'bb') {
+      const k0 = m.p.p1 >= .5 ? '1' : '2', x = m.tip || { k: k0, p: Math.max(m.p.p1, m.p.p2), o: m.o[k0] };
+      const b = { k: x.k, p: x.p, o: x.o || m.o[x.k] };
+      b.stars = b.p >= .75 ? 5 : b.p >= .66 ? 4 : b.p >= .57 ? 3 : b.p >= .48 ? 2 : 1;
+      return (m._tip = b);
+    }
     const ks = ['1', 'X', '2', '1X', 'X2', 'O2.5', 'U2.5', 'KGV', 'KGY'];
     let c = ks.map(k => ({ k, p: probOf(m, k), o: m.o[k] })).filter(x => x.o);
     const fit = c.filter(x => wins(x.k, m.p.score[0], m.p.score[1]));   // oneri, tahmini skorla celismemeli
@@ -216,7 +222,8 @@
 
   function renderChrome() {
     const h = location.hash || '#/';
-    const act = k => (k === 'bulletin' ? (h === '#/' || h === '#' || h.startsWith('#/mac')) : h.startsWith(NAV.find(n => n[0] === k)[1]));
+    const bbm = /^#\/mac\/b/.test(h);
+    const act = k => (k === 'bulletin' ? (h === '#/' || h === '#' || (h.startsWith('#/mac') && !bbm)) : (h.startsWith(NAV.find(n => n[0] === k)[1]) || (k === 'basketball' && bbm)));
     $('nav').innerHTML = NAV.map(([k, u]) => `<a href="${u}" class="${act(k) ? 'on' : ''}" ${act(k) ? 'aria-current="page"' : ''}>${t(k)}${k === 'bulletin' || k === 'basketball' ? `<span class="lvn" data-sport="${k === 'bulletin' ? 'fb' : 'bb'}" hidden></span>` : ''}</a>`).join('')
       + `<a href="#/mollamyrat" class="mm ${h.startsWith('#/mollamyrat') ? 'on' : ''}">★ MollaMyrat</a>`;
     $('tabs').innerHTML = NAV.map(([k, u]) => `<a href="${u}" class="${act(k) ? 'on' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg><span>${t(k + '_s') !== k + '_s' ? t(k + '_s') : t(k)}</span></a>`).join('');
@@ -600,13 +607,31 @@
   }
 
   // ---------- analiz listesi ----------
-  const pbar = p => `<div class="pbar num"><div class="p1" style="flex:${p.p1}">${pct(p.p1)}%</div><div class="px" style="flex:${p.px}">${pct(p.px)}%</div><div class="p2" style="flex:${p.p2}">${pct(p.p2)}%</div></div>`;
+  const pbar = p => `<div class="pbar num"><div class="p1" style="flex:${p.p1}">${pct(p.p1)}%</div>${p.px != null ? `<div class="px" style="flex:${p.px}">${pct(p.px)}%</div>` : ''}<div class="p2" style="flex:${p.p2}">${pct(p.p2)}%</div></div>`;
+  const spSeg = () => `<div class="seg" role="tablist">${['fb', 'bb'].map(k => `<button class="${(flt.sp === 'bb' ? 'bb' : 'fb') === k ? 'on' : ''}" data-sp="${k}">${t('sp_' + k)}</button>`).join('')}</div>`;
+  function viewAnalysisBB() {
+    const up = BB.matches.filter(future).sort(byDate);
+    const days = pickDay(up);
+    const list = up.filter(m => flt.day === 'all' || dayKey(m.d) === flt.day);
+    const html = `<div class="pagehead"><h1>${t('analysis')} · ${t('basketball')}</h1><small>${t('foot_disc')}</small></div>${spSeg()}${dayStrip(days)}`;
+    if (!list.length) return html + `<div class="card empty">${t('bb_none')}</div>`;
+    return html + '<div class="acards">' + list.map(m => {
+      const tp = tipOf(m), p = m.p;
+      return `<a class="card acard" href="#/mac/${m.id}">
+        <div class="top-l"><span>${badge('nba')} NBA</span><span class="num">${shortDate(m.d)} ${timeOf(m.d)}</span></div>
+        <div class="teams"><div class="tm">${logo(m.h)}<span>${esc(ts(m.h))}</span></div><div class="ps">${p.score[0]} - ${p.score[1]}</div><div class="tm">${logo(m.a)}<span>${esc(ts(m.a))}</span></div></div>
+        ${pbar(p)}
+        <div class="top-l"><span>${t('tip')}: <b style="color:var(--tx)">${esc(mkLabel(tp.k, m))}</b> · <span class="num">${tp.o.toFixed(2)}</span></span>${stars(tp.stars)}</div>
+      </a>`;
+    }).join('') + '</div>';
+  }
   function viewAnalysis() {
+    if (flt.sp === 'bb') return viewAnalysisBB();
     const up = upcoming();
     const inLg = up.filter(lgOk);
     const days = pickDay(inLg);
     const list = inLg.filter(m => flt.day === 'all' || dayKey(m.d) === flt.day).sort(byDate);
-    let html = `<div class="pagehead"><h1>${t('analysis')}</h1><small>${t('foot_disc')}</small></div>${dayStrip(days)}${lgChips(new Set(up.map(m => m.lg)), true)}`;
+    let html = `<div class="pagehead"><h1>${t('analysis')}</h1><small>${t('foot_disc')}</small></div>${spSeg()}${dayStrip(days)}${lgChips(new Set(up.map(m => m.lg)), true)}`;
     if (!list.length) return html + `<div class="card empty">${t('nomatch')}</div>`;
     const more = list.length - flt.alim;
     return html + '<div class="acards">' + list.slice(0, flt.alim).map(m => {
@@ -621,10 +646,11 @@
   }
 
   // ---------- mac detay ----------
-  const backLink = () => `<a class="back" href="#/" data-back="1">← ${t('back')}</a>`;
+  const backLink = href => `<a class="back" href="${href || '#/'}" data-back="1">← ${t('back')}</a>`;
   function viewMatch(id) {
     const m = MATCH[id];
-    if (!m || m.sport === 'bb') return `${backLink()}<div class="card empty">${t('no_match_found')}</div>`;
+    if (!m) return `${backLink(/^b/.test(id) ? '#/basketbol' : '')}<div class="card empty">${t('no_match_found')}</div>`;
+    if (m.sport === 'bb') return viewMatchBB(m);
     const TABS = [['pred', t('pred')], ['odds', t('odds')], ['table', t('standings')], ['form', t('formh2h')], ['squad', t('lineups')], ['players', t('players')]];
     let body = '';
     if (dtab === 'pred') body = tabPred(m);
@@ -637,6 +663,118 @@
       <div class="card" style="overflow:hidden">
         <div class="hero">
           <div class="meta">${badge(m.lg)} ${esc(ln(m.lg))} · ${dayLabel(dayKey(m.d))} · ${timeOf(m.d)}${m.v ? ' · ' + esc(m.v) : ''}</div>
+          <div class="vs">
+            <div class="side-t">${logo(m.h)}<span>${esc(tn(m.h))} ${favBtn(m.h)}</span><span class="frm">${formDots(m.f.h.slice(0, 5).map(x => x.r).reverse())}</span></div>
+            <div class="mid" data-lvh="${m.id}">${timeOf(m.d)}<small>${shortDate(m.d)}</small></div>
+            <div class="side-t">${logo(m.a)}<span>${esc(tn(m.a))} ${favBtn(m.a)}</span><span class="frm">${formDots(m.f.a.slice(0, 5).map(x => x.r).reverse())}</span></div>
+          </div>
+        </div>
+        <div class="dtabs" role="tablist">${TABS.map(([k, l]) => `<button role="tab" aria-selected="${dtab === k}" class="${dtab === k ? 'on' : ''}" data-dtab="${k}">${l}</button>`).join('')}</div>
+      </div>${body}`;
+  }
+  // ---------- basketbol: mac detayi ----------
+  function bbTableHtml(hl) {
+    const T = BB.tables || { all: BB.table }, rows = T[ttab] || T.all || [];
+    if (!rows.length) return `<div class="empty">${t('no_table')}</div>`;
+    return `${BB.tables ? `<div class="seg" role="tablist">${['all', 'home', 'away'].map(k => `<button class="${ttab === k ? 'on' : ''}" data-ttab="${k}">${t('t_' + k)}</button>`).join('')}</div>` : ''}
+      <div class="tblwrap"><table class="tbl"><thead><tr><th>#</th><th class="tn">${t('th_team')}</th><th>${t('th_p')}</th><th>${t('th_w')}</th><th>${t('th_l')}</th><th title="${t('c_wpct')}">%</th><th>${t('th_pf')}</th><th>${t('th_pa')}</th><th>${t('th_gd')}</th><th>${t('th_form')}</th></tr></thead><tbody>
+      ${rows.map((r, i) => { const df = r.pf - r.pa; return `<tr class="${hl && hl.includes(r.t) ? 'hl' : ''}"><td>${i + 1}</td><td class="tn">${favBtn(r.t)}${logo(r.t)}<span>${esc(tn(r.t))}</span></td><td>${r.p}</td><td class="pts">${r.w}</td><td>${r.l}</td><td>${pct(r.w / r.p)}</td><td>${r.pf.toFixed(1)}</td><td>${r.pa.toFixed(1)}</td><td>${df > 0 ? '+' : ''}${df.toFixed(1)}</td><td><span class="fr">${formDots(r.f)}</span></td></tr>`; }).join('')}
+      </tbody></table></div>`;
+  }
+  function commentsBB(m) {
+    const p = m.p, out = [], H = tn(m.h), A = tn(m.a), f1 = n => n.toFixed(1), L = RL();
+    if (Math.abs(p.p1 - p.p2) >= .12) out.push(fmt(t('x_fav'), { t: p.p1 > p.p2 ? H : A, p: pct(Math.max(p.p1, p.p2)) }));
+    else out.push(fmt(t('x_even'), { a: pct(p.p1), b: pct(p.p2) }));
+    if (p.margin != null && Math.abs(p.margin) >= 1) out.push(fmt(t('bx_margin'), { t: p.margin > 0 ? H : A, x: f1(Math.abs(p.margin)) }));
+    const rows = (BB.tables || { all: BB.table }).all || [], ra = rows.findIndex(r => r.t === m.h) + 1, rb = rows.findIndex(r => r.t === m.a) + 1;
+    if (ra && rb) out.push(fmt(t('x_rank'), { a: H, ra, b: A, rb }));
+    const st = m.st || {};
+    if (st.h && st.h.p) out.push(fmt(t('bx_home'), { t: H, n: st.h.p, w: st.h.w, l: st.h.l, pf: f1(st.h.pf / st.h.p), pa: f1(st.h.pa / st.h.p) }));
+    if (st.a && st.a.p) out.push(fmt(t('bx_away'), { t: A, n: st.a.p, w: st.a.w, l: st.a.l, pf: f1(st.a.pf / st.a.p), pa: f1(st.a.pa / st.a.p) }));
+    [[H, m.f.h], [A, m.f.a]].forEach(([nm, f]) => {
+      const l5 = f.slice(0, 5); if (!l5.length) return;
+      out.push(fmt(t('bx_form'), { n: l5.length, t: nm, w: l5.filter(x => x.r === 'W').length, f: l5.map(x => L[x.r].slice(0, 1)).reverse().join('-') }));
+    });
+    if (p.po != null) out.push(fmt(t(p.po >= .5 ? 'bx_total_hi' : 'bx_total_lo'), { x: f1(p.total), l: m.line, p: pct(p.po >= .5 ? p.po : 1 - p.po) }));
+    if (m.h2h.length) {
+      let w = 0, l = 0;
+      m.h2h.forEach(g => { const hg = g.h === m.h ? g.hs : g.as, ag = g.h === m.h ? g.as : g.hs; if (hg > ag) w++; else l++; });
+      out.push(fmt(t('bx_h2h'), { n: m.h2h.length, a: H, w, b: A, l }));
+    }
+    [[H, m.pl.h], [A, m.pl.a]].forEach(([nm, pl]) => { const top = (pl || []).find(x => x.k === 'pts'); if (top) out.push(fmt(t('bx_lead'), { t: nm, p: top.n, v: top.v })); });
+    [[H, (m.inj || {}).h], [A, (m.inj || {}).a]].forEach(([nm, inj]) => { if (inj && inj.length) out.push(fmt(t('bx_inj'), { t: nm, n: inj.length, names: inj.slice(0, 3).map(x => x.n).join(', ') + (inj.length > 3 ? '…' : '') })); });
+    return out;
+  }
+  function tabPredBB(m) {
+    const p = m.p, tp = tipOf(m), st = m.st || {}, ts_ = m.ts || { h: {}, a: {} };
+    const z = { p: 0, w: 0, l: 0, pf: 0, pa: 0 }, sh = st.h || z, sa = st.a || z, ha = st.ha || z, aa = st.aa || z;
+    const av = (v, n) => (n ? (v / n).toFixed(1) : '-');
+    const cmpRow = (a, l, b) => (a == null && b == null ? '' : `<tr><td>${esc(a == null ? '-' : a)}</td><td>${l}</td><td>${esc(b == null ? '-' : b)}</td></tr>`);
+    const tsRow = (k, l, suf) => cmpRow(ts_.h[k] != null ? ts_.h[k] + (suf || '') : null, l, ts_.a[k] != null ? ts_.a[k] + (suf || '') : null);
+    const mg = p.margin != null ? `${esc(ts(p.margin >= 0 ? m.h : m.a))} +${Math.abs(p.margin).toFixed(1)}` : '–';
+    return `
+    <div class="card sec">
+      <h2>${t('pred')} ${srcBadge('model')}</h2>
+      <div class="predbox">
+        <div class="pscore"><small>${t('pred_score')}</small><b>${p.score[0]} - ${p.score[1]}</b><i>${t('bb_total')}: ${p.total}</i></div>
+        <div>
+          ${pbar(p)}
+          <div class="plabels"><span>1 · ${esc(ts(m.h))}</span><span>2 · ${esc(ts(m.a))}</span></div>
+          <div class="kpis">
+            <div class="kpi"><small>${t('bb_margin')}</small><b>${mg}</b></div>
+            <div class="kpi"><small>${t('bb_exp_total')}</small><b>${p.total}</b></div>
+            <div class="kpi"><small>${t('over')} ${m.line}</small><b>${p.po != null ? pct(p.po) + '%' : '–'}</b></div>
+            <div class="kpi"><small>${t('under')} ${m.line}</small><b>${p.po != null ? pct(1 - p.po) + '%' : '–'}</b></div>
+          </div>
+        </div>
+      </div>
+      <div class="tip" style="margin-top:14px">
+        <div><div class="lbl">${t('tip')}</div><div class="what">${esc(mkLabel(tp.k, m))}</div></div>
+        <div><div class="lbl">${t('confidence')} · ${pct(tp.p)}%</div>${stars(tp.stars)}</div>
+        ${ob(m, tp.k)}
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card sec"><h2>${t('ms')} ${srcBadge(m.src)}</h2><div class="og c2">${ob(m, '1')}${ob(m, '2')}</div></div>
+      <div class="card sec"><h2>${t('bb_total')} ${m.line} ${srcBadge(m.src)}</h2><div class="og c2">${ob(m, 'BU')}${ob(m, 'BO')}</div></div>
+    </div>
+    <div class="card sec"><h2>${t('commentary')}</h2><ul class="cmt">${commentsBB(m).map(c => `<li>${esc(c)}</li>`).join('')}</ul><p class="note">${t('foot_disc')}</p></div>
+    <div class="card sec"><h2>${t('compare')}</h2>
+      <table class="cmp"><thead><tr><th>${esc(ts(m.h))}</th><th></th><th>${esc(ts(m.a))}</th></tr></thead><tbody>
+        ${cmpRow(`${ha.w}-${ha.l}`, t('c_wl_all'), `${aa.w}-${aa.l}`)}
+        ${cmpRow(`${sh.w}-${sh.l}`, t('home_rec') + ' / ' + t('away_rec'), `${sa.w}-${sa.l}`)}
+        ${cmpRow(av(ha.pf, ha.p), t('c_pf'), av(aa.pf, aa.p))}
+        ${cmpRow(av(ha.pa, ha.p), t('c_pa'), av(aa.pa, aa.p))}
+        ${tsRow('fg', t('c_fg'), '%')}${tsRow('tp', t('c_tp'), '%')}${tsRow('reb', t('c_reb'))}${tsRow('ast', t('c_ast'))}${tsRow('to', t('c_to'))}${tsRow('l10', t('c_l10'))}${tsRow('strk', t('c_strk'))}
+      </tbody></table>
+    </div>
+    <p class="note">${t('bb_note')}</p>`;
+  }
+  function tabPlayersBB(m) {
+    const inj = m.inj || { h: [], a: [] };
+    const st = s => { const k = 'inj_' + String(s || '').toLowerCase().replace(/[^a-z]/g, ''); return t(k) !== k ? t(k) : s; };
+    const one = (id, pl, ij) => `<div class="card sec"><div class="sqhead">${logo(id)} ${esc(tn(id))}</div>
+      <h2>${t('bb_leaders')}</h2>
+      ${pl && pl.length ? `<div class="tblwrap"><table class="tbl pls"><tbody>${pl.map(x => `<tr><td class="tn"><span class="jr">${esc(x.j || '–')}</span><span>${esc(x.n)}</span><small class="mut">${esc(x.p)}</small></td><td class="mut">${t('lead_' + x.k)}</td><td class="pts">${esc(x.v)}</td></tr>`).join('')}</tbody></table></div>` : `<div class="mut">${t('bb_pl_none')}</div>`}
+      <h2 style="margin-top:14px">${t('bb_inj')}</h2>
+      ${ij && ij.length ? `<ul class="outl">${ij.map(x => `<li class="${/out/i.test(x.s) ? 'red' : 'absent'}"><span><b>${esc(x.n)}</b> <small>${esc(x.p)} — ${esc(st(x.s))}${x.t ? ' · ' + esc(x.t) : ''}</small></span></li>`).join('')}</ul>` : `<div class="mut">${t('no_absent')}</div>`}
+    </div>`;
+    return `<div class="grid2">${one(m.h, m.pl.h, inj.h)}${one(m.a, m.pl.a, inj.a)}</div><p class="note">${t('bb_pl_note')}</p>`;
+  }
+  function viewMatchBB(m) {
+    const TABS = [['pred', t('pred')], ['odds', t('odds')], ['table', t('standings')], ['form', t('formh2h')], ['players', t('players')]];
+    if (!TABS.some(x => x[0] === dtab)) dtab = 'pred';
+    let body;
+    if (dtab === 'pred') body = tabPredBB(m);
+    else if (dtab === 'odds') body = `<div class="card sec"><h2>${t('ms')} ${srcBadge(m.src)}</h2><div class="og c2">${ob(m, '1')}${ob(m, '2')}</div></div>
+      <div class="card sec"><h2>${t('bb_total')} ${m.line} ${srcBadge(m.src)}</h2><div class="og c2">${ob(m, 'BU')}${ob(m, 'BO')}</div></div><p class="note">${t('bb_note')}</p>`;
+    else if (dtab === 'table') body = `<div class="card sec">${bbTableHtml([m.h, m.a])}</div>`;
+    else if (dtab === 'form') body = tabForm(m);
+    else body = tabPlayersBB(m);
+    return `${backLink('#/basketbol')}
+      <div class="card" style="overflow:hidden">
+        <div class="hero">
+          <div class="meta">${badge('nba')} NBA · ${dayLabel(dayKey(m.d))} · ${timeOf(m.d)}${m.v ? ' · ' + esc(m.v) : ''}</div>
           <div class="vs">
             <div class="side-t">${logo(m.h)}<span>${esc(tn(m.h))} ${favBtn(m.h)}</span><span class="frm">${formDots(m.f.h.slice(0, 5).map(x => x.r).reverse())}</span></div>
             <div class="mid" data-lvh="${m.id}">${timeOf(m.d)}<small>${shortDate(m.d)}</small></div>
@@ -738,7 +876,7 @@
     const fl = (id, f) => `<div class="card sec"><h2>${logo(id)} ${esc(tn(id))} · ${t('last_matches')}</h2><div class="gl">${f.length ? f.map(g =>
       `<div class="g"><span class="f ${g.r}">${esc(L[g.r].slice(0, 1))}</span><span class="mut num">${shortDate(g.d)}</span>
        <span class="o">${logo(g.o, 'sm')} ${g.ha === 'H' ? '' : '<span class="mut">@</span> '}${esc(tn(g.o))} <small class="mut">${esc(ln(g.lg))}</small></span><span class="sc">${g.gf} - ${g.ga}</span></div>`).join('') : `<div class="empty">–</div>`}</div></div>`;
-    const h2h = m.h2h.length ? `<div class="gl h2h">${m.h2h.map(g => `<div class="g"><span class="mut num">${shortDate(g.d)}.${g.d.slice(2, 4)}</span><span class="o">${esc(tn(g.h))} ${logo(g.h, 'sm')}</span><span class="sc">${g.hs} - ${g.as}</span><span class="o">${logo(g.a, 'sm')} ${esc(tn(g.a))}</span></div>`).join('')}</div>` : `<div class="empty">${t('no_h2h')}</div>`;
+    const h2h = m.h2h.length ? `<div class="gl h2h">${m.h2h.map(g => `<div class="g"><span class="mut num">${shortDate(g.d)}.${g.d.slice(2, 4)}</span><span class="o">${esc(tn(g.h))} ${logo(g.h, 'sm')}</span><span class="sc">${g.hs} - ${g.as}</span><span class="o">${logo(g.a, 'sm')} ${esc(tn(g.a))}</span></div>`).join('')}</div>` : `<div class="empty">${t(m.sport === 'bb' ? 'bb_no_h2h' : 'no_h2h')}</div>`;
     return `<div class="grid2">${fl(m.h, m.f.h)}${fl(m.a, m.f.a)}</div><div class="card sec"><h2>${t('h2h')}</h2>${h2h}</div>`;
   }
 
@@ -799,9 +937,11 @@
       </tbody></table></div>`;
   }
   function viewTables() {
+    if (flt.sp === 'bb') return `<div class="pagehead"><h1>${t('tables')}</h1></div>${spSeg()}
+      <div class="card sec" style="margin-top:0"><h2>${badge('nba')} ${t('bb_table')}</h2>${bbTableHtml()}</div>`;
     const has = D.leagues.filter(l => D.tables[l.id]);
     const lg = flt.lg !== 'all' && D.tables[flt.lg] ? flt.lg : (has[0] || {}).id;
-    return `<div class="pagehead"><h1>${t('tables')}</h1></div>
+    return `<div class="pagehead"><h1>${t('tables')}</h1></div>${spSeg()}
       ${strip(has.map(l => `<button class="chip ${lg === l.id ? 'on' : ''}" data-lg="${l.id}">${esc(ln(l.id))}</button>`).join(''))}
       <div class="card sec" style="margin-top:0">${lg ? `<h2>${badge(lg)} ${esc(ln(lg))}</h2>` + tableHtml(lg) : `<div class="empty">${t('no_table')}</div>`}</div>`;
   }
@@ -810,15 +950,15 @@
   const resRow = (g, withDate) => `<div class="g"><span class="mut num">${withDate ? shortDate(g.d) : timeOf(g.d)}</span><span class="o">${esc(tn(g.h))} ${logo(g.h, 'sm')}</span><span class="sc">${g.hs} - ${g.as}</span><span class="o">${logo(g.a, 'sm')} ${esc(tn(g.a))}</span></div>`;
   const predOf = m => {
     if (!m.p) return null;
-    if (isBB(m)) { const k = m.p.p1 >= .5 ? '1' : '2'; return { sc: m.p.score, k, o: m.o[k] }; }
-    const tp = tipOf(m); return { sc: m.p.score, k: tp.k, o: tp.o };
+    const tp = tipOf(m); return { sc: m.p.score, k: tp.k, o: tp.o, ln: m.line };
   };
   function finRow(r, bb) {
     const pr = r.pr, hw = r.hs > r.as, aw = r.as > r.hs;
     let pred = `<span class="mut fpn">${t('f_nopred')}</span>`;
     if (pr) {
-      const scOk = pr.sc[0] === r.hs && pr.sc[1] === r.as, tipOk = wins(pr.k, r.hs, r.as);
-      const lbl = bb ? t('ms') + ': ' + pr.k : mkLabel(pr.k);
+      const tipOk = wins(pr.k, r.hs, r.as, pr.ln);
+      const scOk = bb ? (pr.sc[0] > pr.sc[1]) === (r.hs > r.as) : pr.sc[0] === r.hs && pr.sc[1] === r.as;
+      const lbl = mkLabel(pr.k, null, pr.ln);
       pred = `<span class="fpl ${scOk ? 'ok' : ''}">${t('f_pred')} <b>${pr.sc[0]}-${pr.sc[1]}</b>${scOk ? ' ✓' : ''}</span><span class="fpt ${tipOk ? 'ok' : 'no'}">${esc(lbl)} ${tipOk ? '✓' : '✗'}</span>`;
     }
     const lg = bb ? '<span class="cc">NBA</span><span>NBA</span>' : `${badge(r.lg)}<span>${esc(ln(r.lg))}</span>`;
@@ -829,48 +969,50 @@
       <div class="fp">${pred}</div></div>`;
   }
   function viewResults() {
-    const bb = flt.rsp === 'bb', src = bb ? BB.results : D.results, known = new Set(src.map(r => r.id));
+    const bb = flt.sp === 'bb', src = bb ? BB.results : D.results, known = new Set(src.map(r => r.id));
     const liveRes = liveCands(bb ? 'bb' : 'fb').filter(m => LIVE[m.id] && LIVE[m.id].fin && !known.has(m.id))
       .map(m => ({ id: m.id, lg: m.lg, d: m.d, h: m.h, a: m.a, hs: LIVE[m.id].hs, as: LIVE[m.id].as, pr: predOf(m) }));
     const all = liveRes.concat(src).filter(r => bb || lgOk(r));
     const days = [...new Set(all.map(r => dayKey(r.d)))].sort().reverse();
     if (!days.includes(flt.rday)) flt.rday = days[0];
     const list = all.filter(r => dayKey(r.d) === flt.rday).sort((x, y) => byDate(x, y));
-    const wp = list.filter(r => r.pr), tipOk = wp.filter(r => wins(r.pr.k, r.hs, r.as)).length, scOk = wp.filter(r => r.pr.sc[0] === r.hs && r.pr.sc[1] === r.as).length;
-    const A = D.acc || { n: 0 };
+    const wp = list.filter(r => r.pr), tipOk = wp.filter(r => wins(r.pr.k, r.hs, r.as, r.pr.ln)).length;
+    const scOk = wp.filter(r => (bb ? (r.pr.sc[0] > r.pr.sc[1]) === (r.hs > r.as) : r.pr.sc[0] === r.hs && r.pr.sc[1] === r.as)).length;
+    const A = (bb ? D.accbb : D.acc) || { n: 0 };
     let html = `<div class="pagehead"><h1>${t('results')}</h1><small>${t('fin_note')}</small></div>
-      <div class="seg" role="tablist">${['fb', 'bb'].map(k => `<button class="${(bb ? 'bb' : 'fb') === k ? 'on' : ''}" data-rsp="${k}">${t('sp_' + k)}</button>`).join('')}</div>
+      ${spSeg()}
       ${strip(days.map(d => { const p = keyParts(d); return `<button class="chip day ${flt.rday === d ? 'on' : ''}" data-rday="${d}"><small>${relDay(d) || t('wd')[p.wd]}</small>${dayShort(d)}</button>`; }).join(''), 'days')}
       ${bb ? '' : lgChips(new Set(D.results.map(r => r.lg)), true)}`;
     if (!list.length) return html + `<div class="card empty">${t('nomatch')}</div>`;
     html += `<div class="card sec facc" style="margin-top:0"><h2>${t('fin_day')} <small class="mut">${dayLabel(flt.rday)}</small></h2><div class="kpis">
       <div class="kpi"><small>${t('c_played')}</small><b>${list.length}</b></div>
       <div class="kpi"><small>${t('f_tip')}</small><b style="color:var(--pri)">${wp.length ? tipOk + '/' + wp.length : '–'}</b></div>
-      <div class="kpi"><small>${t('f_sc')}</small><b style="color:var(--gold)">${wp.length ? scOk + '/' + wp.length : '–'}</b></div>
-      <div class="kpi"><small>${t('fin_30')}</small><b>${!bb && A.n ? pct(A.tip / A.n) + '%' : '–'}</b></div></div></div>`;
+      <div class="kpi"><small>${t(bb ? 'f_win' : 'f_sc')}</small><b style="color:var(--gold)">${wp.length ? scOk + '/' + wp.length : '–'}</b></div>
+      <div class="kpi"><small>${t('fin_30')}</small><b>${A.n ? pct(A.tip / A.n) + '%' : '–'}</b></div></div></div>`;
     return html + `<section class="card lgblock">${list.map(r => finRow(r, bb)).join('')}</section>`;
   }
 
   // ---------- basketbol ----------
   function viewBasketball() {
     const up = BB.matches.filter(future).sort(byDate);
-    let html = `<div class="pagehead"><h1>${t('bb_title')}</h1><small>${t('tznote')}</small></div><div id="livebox" data-sport="bb">${liveBox('bb')}</div>`;
+    let html = `<div class="pagehead"><h1>${t('bb_title')}</h1><small>${t('tznote')}</small></div>
+      <div class="chips bbnav">${[['analiz', 'analysis'], ['puan', 'tables'], ['sonuclar', 'results']].map(([u, k]) => `<button class="chip" data-go="${u}">${t(k)} →</button>`).join('')}</div>
+      <div id="livebox" data-sport="bb">${liveBox('bb')}</div>`;
     if (!up.length) html += `<div class="card empty">${t('bb_none')}</div>`;
     [...new Set(up.map(m => dayKey(m.d)))].sort().forEach(dk => {
       const ms = up.filter(m => dayKey(m.d) === dk);
       html += `<h2 class="dayhead">${dayLabel(dk)}</h2><section class="card lgblock"><div class="lghead"><span class="cc">NBA</span><span>NBA</span><span class="day">${ms.length} ${t('selections')}</span></div>
         <div class="mkhead bb"><span></span><span>${t('ms')}</span><span>${t('bb_total')}</span><span>${t('pred')}</span></div>
         ${ms.map(m => `<div class="mrow bb">
-          <div class="minfo"><div class="mtime num">${timeOf(m.d)}<small>${srcBadge(m.src)}</small></div>
-            <div class="mteams"><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span></div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span></div></div></div>
+          <a class="minfo" href="#/mac/${m.id}"><div class="mtime num">${timeOf(m.d)}<small>${srcBadge(m.src)}</small></div>
+            <div class="mteams"><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div></div></a>
           <div class="og c2 ms">${ob(m, '1')}${ob(m, '2')}</div>
           <div class="og c2 tot">${ob(m, 'BU')}${ob(m, 'BO')}</div>
-          <div class="bbp num"><b>${m.p.score[0]} - ${m.p.score[1]}</b><small>1: ${pct(m.p.p1)}% · 2: ${pct(m.p.p2)}%</small></div>
+          <a class="bbp num" href="#/mac/${m.id}" title="${t('detail')}" aria-label="${t('detail')}: ${esc(tn(m.h))} – ${esc(tn(m.a))}"><b>${m.p.score[0]} - ${m.p.score[1]}</b><small>1: ${pct(m.p.p1)}% · 2: ${pct(m.p.p2)}%</small><small class="bbd">${t('analysis')} →</small></a>
         </div>`).join('')}</section>`;
     });
     html += `<p class="note">${t('bb_note')}</p>`;
-    if (BB.table.length) html += `<div class="card sec"><h2>${t('bb_table')}</h2><div class="tblwrap"><table class="tbl"><thead><tr><th>#</th><th class="tn">${t('th_team')}</th><th>${t('th_p')}</th><th>${t('th_w')}</th><th>${t('th_l')}</th><th>${t('th_pf')}</th><th>${t('th_pa')}</th><th>${t('th_form')}</th></tr></thead><tbody>
-      ${BB.table.map((r, i) => `<tr><td>${i + 1}</td><td class="tn">${favBtn(r.t)}${logo(r.t)}<span>${esc(tn(r.t))}</span></td><td>${r.p}</td><td class="pts">${r.w}</td><td>${r.l}</td><td>${r.pf.toFixed(1)}</td><td>${r.pa.toFixed(1)}</td><td><span class="fr">${formDots(r.f)}</span></td></tr>`).join('')}</tbody></table></div></div>`;
+    if ((BB.table || []).length) html += `<div class="card sec"><h2>${t('bb_table')}</h2>${bbTableHtml()}</div>`;
     const rs = BB.results.slice(0, 12);
     if (rs.length) html += `<div class="card sec"><h2>${t('results')}</h2><div class="gl h2h">${rs.map(g => resRow(g, true)).join('')}</div></div>`;
     return html;
@@ -1091,7 +1233,7 @@
       <div class="mteams"><div class="mlg">${lg}</div>
         <div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span><b class="ls ${on ? 'on' : ''}">${l ? l.hs : '–'}</b></div>
         <div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span><b class="ls ${on ? 'on' : ''}">${l ? l.as : '–'}</b></div></div>`;
-    return MATCH[m.id] && !isBB(m) ? `<a class="lrow" href="#/mac/${m.id}">${inner}</a>` : `<div class="lrow">${inner}</div>`;
+    return MATCH[m.id] ? `<a class="lrow" href="#/mac/${m.id}">${inner}</a>` : `<div class="lrow">${inner}</div>`;
   }
   function liveBox(sport) {
     const cs = liveCands(sport).filter(m => sport === 'bb' || lgOk(m)).sort((a, b) => isFavM(b) - isFavM(a) || byDate(a, b));
@@ -1200,6 +1342,10 @@
     if (km) { loadShared(decodeURIComponent(km[1])); location.replace('#/'); return; }
     const mm = h.match(/^#\/mac\/(\w+)/);
     let html, title;
+    // spor baglami: son gezilen bulten (futbol / basketbol) analiz, puan ve sonuc sayfalarini belirler
+    if (h === '#/' || h === '#') flt.sp = 'fb';
+    else if (h.startsWith('#/basketbol')) flt.sp = 'bb';
+    else if (mm) flt.sp = mm[1][0] === 'b' ? 'bb' : 'fb';
     if (mm) { html = viewMatch(mm[1]); const m = MATCH[mm[1]]; title = m ? tn(m.h) + ' – ' + tn(m.a) : t('bulletin'); }
     else if (h.startsWith('#/analiz')) { html = viewAnalysis(); title = t('analysis'); }
     else if (h.startsWith('#/basketbol')) { html = viewBasketball(); title = t('basketball'); }
@@ -1239,7 +1385,8 @@
       toast(fmt(t(on ? 'fav_added' : 'fav_removed'), { n: tn(id) }));
       const y = scrollY; render(); scrollTo(0, y); return;
     }
-    if (d.rsp) { flt.rsp = d.rsp; flt.rday = undefined; return render(); }
+    if (d.sp) { flt.sp = d.sp; flt.rday = undefined; flt.alim = 48; return render(); }
+    if (d.go) { flt.rday = undefined; location.hash = '#/' + d.go; return; }
     if (d.act === 'notif') return toggleNotif();
     if (d.act === 'share-slip') return shareSlip();
     if (d.act === 'share-molla') return shareMolla(d.cdate);
