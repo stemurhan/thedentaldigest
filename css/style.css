@@ -575,3 +575,24 @@ a.bbp:hover{background:var(--s2)}
 .bbp .bbd{color:var(--pri);font-weight:700}
 .mrow.bb a.minfo{color:inherit;text-decoration:none}
 .pls td.mut{font-size:12px;white-space:nowrap}
+
+/* ---------- v7: bulten satiri orta sutunun gercek genisligine gore daralir ----------
+   (yan paneller acikken takim adlari sifir genislige dusuyordu) */
+@media (min-width:861px){
+  .main{container-type:inline-size}
+  @container (max-width:765px){
+    .mkhead:not(.bb),.mrow:not(.bb){grid-template-columns:minmax(0,1fr) 180px 120px 44px}
+    .mrow:not(.bb) .og.kg,.mkhead:not(.bb) span:nth-child(4){display:none}
+  }
+  @container (max-width:650px){
+    .mkhead:not(.bb),.mrow:not(.bb){grid-template-columns:minmax(0,1fr) 180px 44px}
+    .mrow:not(.bb) .og.ou,.mkhead:not(.bb) span:nth-child(3){display:none}
+  }
+  @container (max-width:755px){
+    .mkhead.bb,.mrow.bb{grid-template-columns:minmax(0,1fr) 120px 170px 84px}
+  }
+  @container (max-width:700px){
+    .mkhead.bb,.mrow.bb{grid-template-columns:minmax(0,1fr) 120px 84px}
+    .mrow.bb .og.tot,.mkhead.bb span:nth-child(3){display:none}
+  }
+}

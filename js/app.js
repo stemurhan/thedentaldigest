@@ -596,7 +596,7 @@
   function row(m, wd) {
     return `<div class="mrow">
       <a class="minfo" href="#/mac/${m.id}">
-        <div class="mtime num">${wd === true ? `<span class="md">${shortDate(m.d)}</span>` : ''}${timeOf(m.d)}<small>${srcBadge(m.src)}</small></div>
+        <div class="mtime num">${wd === true ? `<span class="md">${shortDate(m.d)}</span>` : ''}${timeOf(m.d)}</div>
         <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div></div>
       </a>
       <div class="og c3 ms">${ob(m, '1')}${ob(m, 'X')}${ob(m, '2')}</div>
@@ -1006,7 +1006,7 @@
       html += `<h2 class="dayhead">${dayLabel(dk)}</h2><section class="card lgblock"><div class="lghead"><span class="cc">NBA</span><span>NBA</span><span class="day">${ms.length} ${t('selections')}</span></div>
         <div class="mkhead bb"><span></span><span>${t('ms')}</span><span>${t('bb_total')}</span><span>${t('pred')}</span></div>
         ${ms.map(m => `<div class="mrow bb">
-          <a class="minfo" href="#/mac/${m.id}"><div class="mtime num">${timeOf(m.d)}<small>${srcBadge(m.src)}</small></div>
+          <a class="minfo" href="#/mac/${m.id}"><div class="mtime num">${timeOf(m.d)}</div>
             <div class="mteams"><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div></div></a>
           <div class="og c2 ms">${ob(m, '1')}${ob(m, '2')}</div>
           <div class="og c2 tot">${ob(m, 'BU')}${ob(m, 'BO')}</div>
