@@ -34,8 +34,10 @@ def http(url, method="GET", body=None, headers=None):
 
 
 def sb(path, method="GET", body=None):
-    return http(URL + path, method, body, {"apikey": KEY, "Authorization": "Bearer " + KEY,
-                                         "Content-Type": "application/json"})
+    h = {"apikey": KEY, "Content-Type": "application/json"}
+    if KEY.startswith("eyJ"):            # eski tip (JWT) anahtar; yeni "sb_secret_" anahtarlari yalnizca apikey ile
+        h["Authorization"] = "Bearer " + KEY
+    return http(URL + path, method, body, h)
 
 
 def pdate(s):
