@@ -8,12 +8,13 @@ Cikti:       data/data.js  (site bu dosyayi okur)
 
 Kaynaklar
   * ESPN acik veri akisi: fikstur, sonuc, kadro, oyuncu istatistikleri, NBA.
-  * Ayni akistaki oran saglayicilari: once "Bet 365", yoksa diger saglayici
-    (or. DraftKings), o da yoksa Analiz365 modeli.
+  * Oranlar: once ESPN akisindaki "Bet 365", yoksa Nesine acik bulteni (iddaa
+    programi), yoksa diger saglayici (or. DraftKings), o da yoksa Analiz365 modeli.
   * Wikidata: takim / ulke adlarinin Rusca, Turkce ve Turkmence karsiliklari.
 Puan tablolari (genel / ic saha / dis saha), form, aralarindaki maclar ve skor
 tahmini bu betikte hesaplanir.
 """
+import difflib
 import gzip
 import json
 import math
@@ -407,6 +408,14 @@ def load_odds(m):
                 val = (it.get("drawOdds") or {}).get("value")
                 if val and val > 1:
                     out["X"] = round(float(val), 2)
+            try:
+                hc = float((to.get("preMatchOverUnderHandicap") or {}).get("value"))
+                ov = frac((to.get("preMatchGoalLineOver") or {}).get("value", ""))
+                un = frac((to.get("preMatchGoalLineUnder") or {}).get("value", ""))
+                if hc == 2.5 and ov and un:
+                    out["O2.5"], out["U2.5"] = ov, un
+            except (TypeError, ValueError):
+                pass
             if all(k in out for k in ("1", "X", "2")):
                 res["b365"] = out
         elif "alt" not in res:
@@ -649,6 +658,117 @@ def make_index(rows, drop=True):
     return idx
 
 
+# ---- Nesine acik bulteni (iddaa programi: mac sonucu, cifte sans, alt/ust, KG) ----
+NES_URLS = ["https://bulten.nesine.com/api/bulten/getprebultenfull",
+            "https://cdnbulten.nesine.com/api/bulten/getprebultenfull"]
+NES_DC = {1: "1X", 2: "12", 3: "X2"}
+
+
+def nesine_load():
+    """Doner: {'fb': [...], 'bb': [...]}; her kayit {'t': epoch sn, 'h', 'a', 'o': {...}}."""
+    path = os.path.join(CACHE, "nesine.json")
+    c = cache_read(path)
+    if c and time.time() - c.get("ts", 0) < 20 * 60:
+        return c["v"]
+    sg = None
+    for url in NES_URLS:
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/126.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*", "Accept-Encoding": "gzip",
+                "Referer": "https://www.nesine.com/", "Origin": "https://www.nesine.com"})
+            with urllib.request.urlopen(req, timeout=40) as r:
+                raw = r.read()
+                if r.headers.get("Content-Encoding") == "gzip":
+                    raw = gzip.decompress(raw)
+            sg = json.loads(raw.decode("utf-8")).get("sg") or {}
+            if sg.get("EA"):
+                break
+        except Exception as ex:
+            print(f"   Nesine okunamadi ({url.split('/')[2]}): {ex}", flush=True)
+    out = {"fb": [], "bb": []}
+    if not sg or not sg.get("EA"):
+        return out
+    ok = lambda v: isinstance(v, (int, float)) and v > 1.01
+    for e in sg["EA"]:
+        if not e.get("HN") or not e.get("AN") or not e.get("ESD") or e.get("TYPE") not in (1, 2):
+            continue
+        o, lines = {}, []
+        for m in e.get("MA") or []:
+            if m.get("MS") != 1:                     # kapali / askida pazar
+                continue
+            oc = {x.get("N"): x.get("O") for x in m.get("OCA") or []}
+            mst, sov = m.get("MST"), float(m.get("SOV") or 0)
+            if e["TYPE"] == 1:
+                if mst == 1 and all(ok(oc.get(i)) for i in (1, 2, 3)):
+                    o["1"], o["X"], o["2"] = oc[1], oc[2], oc[3]
+                elif mst == 92:
+                    for i, k in NES_DC.items():
+                        if ok(oc.get(i)):
+                            o[k] = oc[i]
+                elif mst == 101 and sov in (1.5, 2.5, 3.5) and ok(oc.get(1)) and ok(oc.get(2)):
+                    o[f"U{sov}"], o[f"O{sov}"] = oc[1], oc[2]
+                elif mst == 89 and ok(oc.get(1)) and ok(oc.get(2)):
+                    o["KGV"], o["KGY"] = oc[1], oc[2]
+            else:
+                if mst == 2 and ok(oc.get(1)) and ok(oc.get(2)):
+                    o["1"], o["2"] = oc[1], oc[2]
+                elif mst == 114 and ok(oc.get(1)) and ok(oc.get(2)):
+                    lines.append((0 if m.get("BM") else 1, abs(oc[1] - oc[2]), sov, oc[1], oc[2]))
+        if lines:                                    # ana cizgi; yoksa en dengeli cizgi
+            _, _, ln_, un, ov = min(lines)
+            o["line"], o["U"], o["O"] = ln_, un, ov
+        if o:
+            out["fb" if e["TYPE"] == 1 else "bb"].append(
+                {"t": int(e["ESD"] / 1000), "h": fx(e["HN"]), "a": fx(e["AN"]), "o": o})
+    cache_write(path, {"ts": time.time(), "v": out})
+    return out
+
+
+def name_sim(a, b):
+    a, b = norm(a), norm(b)
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    ta, tb = set(a.split()), set(b.split())
+    r = difflib.SequenceMatcher(None, a, b).ratio()
+    if ta <= tb or tb <= ta:                         # "Phoenix" ~ "Phoenix Suns"
+        r = max(r, 0.9 if min(len(a), len(b)) >= 4 else 0.7)
+    elif ta & tb and max(len(x) for x in ta & tb) >= 5:
+        r = max(r, 0.75)
+    return r
+
+
+def nes_find(evs, dt, hn, an, tol=1800):
+    """Baslama saati ve takim adlari uyan Nesine macinin oranlari (yoksa None)."""
+    t0 = dt.timestamp()
+    best, second = (0, None), 0
+    for e in evs:
+        gap = abs(e["t"] - t0)
+        if gap > tol:
+            continue
+        sh = max(name_sim(n, e["h"]) for n in hn)
+        sa = max(name_sim(n, e["a"]) for n in an)
+        sc = min(sh, sa) + 0.25 * max(sh, sa) - (0.1 if gap > 300 else 0)
+        if min(sh, sa) < 0.55 and not (max(sh, sa) >= 0.9 and min(sh, sa) >= 0.4):
+            continue
+        if sc > best[0]:
+            second, best = best[0], (sc, e)
+        elif sc > second:
+            second = sc
+    if best[1] is None or best[0] - second < 0.08:
+        return None
+    return best[1]["o"]
+
+
+def country_rows():
+    return wd_query(
+        "countries", "{ ?c wdt:P31 wd:Q3624078 } UNION { ?c wdt:P31 wd:Q6256 } UNION { VALUES ?c { "
+        + " ".join("wd:" + q for q in EXTRA_NAT) + " } }")
+
+
 # Wikidata'da "cok sporlu kulup" gibi farkli kayitli ya da hic bulunamayan kulupler
 NAME_FIX = {
     "Barcelona": {"tr": "Barcelona", "ru": "Барселона", "tk": "Barselona"},
@@ -676,9 +796,7 @@ def localize(teams, nat_ids, team_country):
         for k, v in by_c[q].items():
             if k not in glob or v[0] > glob[k][0]:
                 glob[k] = v
-    cidx = make_index(wd_query(
-        "countries", "{ ?c wdt:P31 wd:Q3624078 } UNION { ?c wdt:P31 wd:Q6256 } UNION { VALUES ?c { "
-        + " ".join("wd:" + q for q in EXTRA_NAT) + " } }"), drop=False)
+    cidx = make_index(country_rows(), drop=False)
     hit = 0
     for tid, t in teams.items():
         rec = None
@@ -962,6 +1080,10 @@ def basketball():
             teams["b" + e[s]["id"]] = {"n": e[s]["n"], "s": e[s]["s"], "l": e[s]["l"]}
     odds = dict(pmap(load_odds, up))
     summ = dict(pmap(bb_summary, [m["id"] for m in up]))
+    try:
+        nes_bb = nesine_load()["bb"]
+    except Exception:
+        nes_bb = []
     matches = []
     for m in up:
         hid, aid = m["h"]["id"], m["a"]["id"]
@@ -970,6 +1092,10 @@ def basketball():
         ea = avg + (rate(a["pf"], a["p"]) - avg) + (rate(h["pa"], h["p"]) - avg) - 1.6
         model = [round(eh, 1), round(ea, 1)]
         alt = (odds.get(m["id"]) or {}).get("alt")
+        if not alt and nes_bb:
+            no = nes_find(nes_bb, m["dt"], [m["h"]["n"], m["h"]["s"]], [m["a"]["n"], m["a"]["s"]])
+            if no and no.get("1") and no.get("2"):
+                alt = dict(no, name="Nesine")
         if alt:
             i1, i2 = 1 / alt["1"], 1 / alt["2"]
             q1 = i1 / (i1 + i2)
@@ -1107,7 +1233,31 @@ def main():
     odds = dict(pmap(load_odds, upcoming, "oran"))
     nb = sum(1 for v in odds.values() if "b365" in v)
     na = sum(1 for v in odds.values() if "b365" not in v and "alt" in v)
-    print(f"   {nb} macta bet365, {na} macta diger saglayici, {len(upcoming) - nb - na} macta model orani", flush=True)
+    print(f"   ESPN akisi: {nb} macta bet365, {na} macta diger saglayici", flush=True)
+
+    nes_odds = {}
+    try:
+        nes_fb = nesine_load()["fb"]
+        tr_nat = {}
+        if nes_fb:
+            try:
+                cidx = make_index(country_rows(), drop=False)
+            except Exception:
+                cidx = {}
+            for e in upcoming:
+                if LGMAP[e["lg"]]["nat"]:
+                    for sd in ("h", "a"):
+                        rec = cidx.get(norm(NAT_ALIAS.get(e[sd]["n"], e[sd]["n"]), False))
+                        if rec and rec[1]["tr"]:
+                            tr_nat[e[sd]["id"]] = rec[1]["tr"]
+        for e in upcoming:
+            names = lambda t: [x for x in (t["n"], t["s"], tr_nat.get(t["id"])) if x]
+            no = nes_find(nes_fb, e["dt"], names(e["h"]), names(e["a"]))
+            if no and all(k in no for k in ("1", "X", "2")):
+                nes_odds[e["id"]] = no
+        print(f"   Nesine: bultendeki {len(nes_fb)} futbol macindan {len(nes_odds)} tanesi eslesti", flush=True)
+    except Exception as ex:
+        print("   Nesine atlandi:", ex, flush=True)
 
     print("3/6 Kadrolar ve oyuncu istatistikleri...", flush=True)
     soon = [m for m in upcoming if m["dt"] <= NOW + timedelta(days=DETAIL_DAYS) and not LGMAP[m["lg"]]["tsdb"]]
@@ -1179,31 +1329,42 @@ def main():
         fh, fa = form_of(hid), form_of(aid)
         lh, la = model_lambdas(st, avg_h, avg_a, hid, aid, form_ratio(fh), form_ratio(fa))
         o = odds.get(m["id"]) or {}
-        b365, alt = o.get("b365"), o.get("alt")
-        ref = b365 or alt
+        b365, alt, nes = o.get("b365"), o.get("alt"), nes_odds.get(m["id"])
+        # oncelik: bet365 > Nesine > diger saglayici (or. DraftKings) > Analiz365 modeli
+        ref = b365 or nes or alt
+        ref_name = "bet365" if b365 else "Nesine" if nes else alt["name"] if alt else "model"
         if ref:
             inv = [1 / ref["1"], 1 / ref["X"], 1 / ref["2"]]
-            s = sum(inv)
-            mh, ma = market_lambdas(inv[0] / s, inv[1] / s, inv[2] / s)
+            sm_ = sum(inv)
+            mh, ma = market_lambdas(inv[0] / sm_, inv[1] / sm_, inv[2] / sm_)
             w = (0.75 if lg["cup"] else 0.5) if b365 else (0.9 if lg["cup"] else 0.6)
             lh, la = w * mh + (1 - w) * lh, w * ma + (1 - w) * la
         p = predict(lh, la)
-        mk = {}
+        mk, ss = {}, {"ms": ref_name}
         if ref:
             mk.update({k: ref[k] for k in ("1", "X", "2")})
         else:
             mk.update({"1": odd(p["p1"]), "X": odd(p["px"]), "2": odd(p["p2"])})
-        for k, pv in (("1X", p["p1"] + p["px"]), ("12", p["p1"] + p["p2"]), ("X2", p["px"] + p["p2"])):
-            mk[k] = b365[k] if b365 and k in b365 else odd(pv)
+
+        def pick(keys, cands):
+            """Bir pazar grubunun tum secenekleri ayni kaynaktan gelir."""
+            for name, src_ in cands:
+                if src_ and all(src_.get(k) for k in keys):
+                    return name, {k: src_[k] for k in keys}
+            return "model", None
+
+        dc_p = {"1X": p["p1"] + p["px"], "12": p["p1"] + p["p2"], "X2": p["px"] + p["p2"]}
+        ss["dc"], got = pick(("1X", "12", "X2"), (("bet365", b365), ("Nesine", nes)))
+        mk.update(got or {k: odd(v) for k, v in dc_p.items()})
+        alt25 = {"O2.5": alt["O"], "U2.5": alt["U"]} if alt and alt.get("line") == 2.5 and alt.get("O") and alt.get("U") else None
         for n, key in ((1, "o15"), (2, "o25"), (3, "o35")):
-            mk[f"O{n}.5"] = odd(p[key])
-            mk[f"U{n}.5"] = odd(1 - p[key])
-        ou_src = "model"
-        if alt and alt.get("line") == 2.5 and alt.get("O") and alt.get("U"):
-            mk["O2.5"], mk["U2.5"] = alt["O"], alt["U"]
-            ou_src = alt["name"]
-        mk["KGV"] = odd(p["btts"])
-        mk["KGY"] = odd(1 - p["btts"])
+            ks = (f"O{n}.5", f"U{n}.5")
+            cands = [("bet365", b365), ("Nesine", nes)] + ([(alt["name"], alt25)] if n == 2 and alt25 else [])
+            ss[f"ou{n}5"], got = pick(ks, cands)
+            mk.update(got or {ks[0]: odd(p[key]), ks[1]: odd(1 - p[key])})
+        ou_src = ss["ou25"]
+        ss["kg"], got = pick(("KGV", "KGY"), (("Nesine", nes),))
+        mk.update(got or {"KGV": odd(p["btts"]), "KGY": odd(1 - p["btts"])})
         h2h = []
         for g in by_team[hid]:
             if {g["h"]["id"], g["a"]["id"]} == {hid, aid}:
@@ -1212,7 +1373,7 @@ def main():
         h2h = h2h[-6:][::-1]
         detail = m["dt"] <= NOW + timedelta(days=DETAIL_DAYS)
         rec = {"id": m["id"], "lg": lid, "d": m["d"], "h": hid, "a": aid, "v": m["v"],
-               "src": "bet365" if b365 else alt["name"] if alt else "model", "ou": ou_src,
+               "src": ref_name, "ou": ou_src, "ss": ss,
                "o": mk, "p": p, "f": {"h": fh, "a": fa}, "h2h": h2h,
                "st": {"h": dict(st[hid]["home"]), "a": dict(st[aid]["away"])},
                "sq": {"h": squad(hid, lid) if detail else None, "a": squad(aid, lid) if detail else None},
@@ -1229,6 +1390,10 @@ def main():
                             "hs": e["hs"], "as": e["as"]})
     results.reverse()
 
+    cs = defaultdict(int)
+    for m in matches:
+        cs[m["src"]] += 1
+    print("   Mac sonucu orani kaynagi: " + ", ".join(f"{k} {v}" for k, v in sorted(cs.items(), key=lambda x: -x[1])), flush=True)
     print("5/6 Takim adlari (TR / RU / TM)...", flush=True)
     up_ids = {m["id"] for m in upcoming}
     recent = []

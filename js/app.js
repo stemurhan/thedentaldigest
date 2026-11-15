@@ -864,10 +864,12 @@
 
   function tabOdds(m) {
     const grp = (title, ks, cols, src) => `<div class="card sec"><h2>${title} ${srcBadge(src)}</h2><div class="og c${cols}">${ks.map(k => ob(m, k)).join('')}</div></div>`;
-    return grp(t('ms'), ['1', 'X', '2'], 3, m.src) + grp(t('dc'), ['1X', '12', 'X2'], 3, m.src === 'bet365' ? 'bet365' : 'model')
-      + grp(t('ou') + ' 2.5', ['U2.5', 'O2.5'], 2, m.ou || 'model')
-      + grp(t('ou'), ['U1.5', 'O1.5', 'U3.5', 'O3.5'], 2, 'model')
-      + grp(t('btts'), ['KGV', 'KGY'], 2, 'model')
+    const ss = m.ss || { ms: m.src, dc: m.src === 'bet365' ? 'bet365' : 'model', ou25: m.ou || 'model', ou15: 'model', ou35: 'model', kg: 'model' };
+    return grp(t('ms'), ['1', 'X', '2'], 3, ss.ms) + grp(t('dc'), ['1X', '12', 'X2'], 3, ss.dc)
+      + grp(t('ou') + ' 2.5', ['U2.5', 'O2.5'], 2, ss.ou25)
+      + grp(t('ou') + ' 1.5', ['U1.5', 'O1.5'], 2, ss.ou15)
+      + grp(t('ou') + ' 3.5', ['U3.5', 'O3.5'], 2, ss.ou35)
+      + grp(t('btts'), ['KGV', 'KGY'], 2, ss.kg)
       + `<p class="note">${srcNote(m)}</p>`;
   }
 
