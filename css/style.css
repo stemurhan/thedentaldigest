@@ -603,3 +603,14 @@ a.bbp:hover{background:var(--s2)}
 .tipx{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--s2);border:1px solid var(--line);color:var(--tx);font-size:12px}
 .tipx:hover{border-color:var(--gold)}
 .tipx b{color:var(--gold)}
+
+/* ---------- v9: alt menude MollaMyrat, kupon sekmeleri ---------- */
+button.tipx{width:100%;text-align:left;cursor:pointer}
+.mseg{display:flex;width:100%;max-width:520px}
+.mseg button{flex:1;white-space:nowrap;padding:8px 6px}
+@media (max-width:860px){
+  .tabs{grid-template-columns:repeat(7,1fr)}
+  .tabs a{font-size:9px;gap:2px}
+  .tabs a.mm{color:var(--gold)}
+  .tabs a.mm.on{color:var(--pri)}
+}
