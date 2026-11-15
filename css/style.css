@@ -596,3 +596,10 @@ a.bbp:hover{background:var(--s2)}
     .mrow.bb .og.tot,.mkhead.bb span:nth-child(3){display:none}
   }
 }
+
+/* ---------- v8: MollaMyrat ek kuponlari ---------- */
+.mdate{font-size:13px;color:var(--mut);margin:18px 2px 0;font-weight:700}
+.mdate+.tipc{margin-top:8px}
+.tipx{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--s2);border:1px solid var(--line);color:var(--tx);font-size:12px}
+.tipx:hover{border-color:var(--gold)}
+.tipx b{color:var(--gold)}

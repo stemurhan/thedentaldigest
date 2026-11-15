@@ -832,6 +832,8 @@ def localize(teams, nat_ids, team_country):
 MOLLA = os.path.join(ROOT, "data", "molla.json")
 MOLLA_DAYS = 2                 # kupon kac gunu kapsar / kac gunde bir yenilenir
 TIP_KEYS = ["1", "X", "2", "1X", "X2", "O2.5", "U2.5", "KGV", "KGY"]
+MOLLA_HI = 20.0                # yuksek oranli kuponun en dusuk toplam orani
+MOLLA_SYS = (3, 5)             # sistem kuponu: 5 macin en az 3'u (3'lu kolonlar)
 
 
 def wins(k, hs, as_):
@@ -873,7 +875,7 @@ def molla(matches, done_by_id, src_team, use):
     today = (NOW + timedelta(hours=5)).strftime("%Y-%m-%d")   # Askabat gunu
     # 1) bitmis maclari sonuclandir
     for c in state["coupons"].values():
-        for pk in c["picks"]:
+        for pk in c["picks"] + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", []):
             e = done_by_id.get(pk["id"])
             if e and "res" not in pk:
                 pk["res"] = [e["hs"], e["as"]]
@@ -893,29 +895,78 @@ def molla(matches, done_by_id, src_team, use):
             keys = keys[:-1]
     day0 = datetime.strptime(today, "%Y-%m-%d")
     due = not keys or (day0 - datetime.strptime(keys[-1], "%Y-%m-%d")).days >= MOLLA_DAYS
+
+    def penalty(m):
+        lg = LGMAP[m["lg"]]
+        v = 0.03 if m["src"] != "model" else -0.03      # gercek piyasa orani olan maclar daha guvenilir
+        if lg["tier"] > 1:
+            v -= 0.04
+        if m["lg"] == "fifa.friendly":                   # hazirlik maclari ongorulemez
+            v -= 0.06
+        return v
+
+    def options(m, lo=1.18, hi=99.0):
+        """Tahmini skorla celismeyen secenekler: [(olasilik, pazar, oran)]."""
+        p = m["p"]
+        pr = {"1": p["p1"], "X": p["px"], "2": p["p2"], "1X": p["p1"] + p["px"], "X2": p["px"] + p["p2"],
+              "12": p["p1"] + p["p2"], "O1.5": p["o15"], "U3.5": 1 - p["o35"],
+              "O2.5": p["o25"], "U2.5": 1 - p["o25"], "KGV": p["btts"], "KGY": 1 - p["btts"]}
+        return [(pr[k], k, m["o"][k]) for k in pr if m["o"].get(k) and lo <= m["o"][k] <= hi
+                and wins(k, *p["score"])]
+
+    def base(m):
+        return {"id": m["id"], "lg": m["lg"], "d": m["d"], "h": m["h"], "a": m["a"],
+                "hn": src_team[m["h"]]["n"], "an": src_team[m["a"]]["n"]}
+
+    def rec(t, m):
+        return dict(base(m), k=t[1], o=t[2], p=round(t[0], 3), sc=m["p"]["score"])
+
+    def window(key):
+        """Kuponun kapsadigi 48 saat: simdi -> ikinci gunun sonu (Askabat 24:00 = UTC 19:00)."""
+        w_end = datetime.strptime(key, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=MOLLA_DAYS) - timedelta(hours=5)
+        return [m for m in matches if NOW + timedelta(minutes=15) < pdate(m["d"]) <= w_end]
+
+    def high_coupon(pool):
+        """Toplam orani en az MOLLA_HI olan kupon: olasiligi en yuksek orta oranli secimler."""
+        for lo, hi, pmin, cap in ((1.5, 3.0, 0.45, 9), (1.7, 4.5, 0.33, 8)):
+            c = []
+            for m in pool:
+                opts = [x for x in options(m, lo, hi) if x[0] >= pmin]
+                if opts:
+                    best = max(opts, key=lambda x: x[0] + 0.05 * min(x[2] - lo, 1))
+                    c.append((best[0] + penalty(m), best, m))
+            c.sort(key=lambda x: -x[0])
+            out, tot = [], 1.0
+            for _, t, m in c[:cap]:
+                out.append((t, m))
+                tot *= t[2]
+                if tot >= MOLLA_HI:
+                    out.sort(key=lambda x: x[1]["d"])
+                    return {"picks": [rec(t_, m_) for t_, m_ in out]}
+        return None
+
+    def system_coupon(pool, avoid):
+        """Sistem kuponu: oran 1.5+ en guvenilir 5 mac; 3'lu kolonlar (en az 3 dogru kazandirir)."""
+        need, n = MOLLA_SYS
+        c = []
+        for m in pool:
+            opts = [x for x in options(m, 1.5, 2.8) if x[0] >= 0.48]
+            if opts:
+                best = max(opts, key=lambda x: x[0])
+                c.append((m["id"] in avoid, -(best[0] + penalty(m)), best, m))
+        c.sort(key=lambda x: (x[0], x[1]))
+        c = c[:n]
+        if len(c) < need + 1:
+            return None
+        c.sort(key=lambda x: x[3]["d"])
+        return {"k": need, "picks": [rec(t, m) for _, _, t, m in c]}
+
     if due:
         until = (day0 + timedelta(days=MOLLA_DAYS - 1)).strftime("%Y-%m-%d")
-        # pencere: simdi -> ikinci gunun sonu (Askabat 24:00 = UTC 19:00)
-        w_end = day0.replace(tzinfo=timezone.utc) + timedelta(days=MOLLA_DAYS) - timedelta(hours=5)
-        pool = [m for m in matches if NOW + timedelta(minutes=15) < pdate(m["d"]) <= w_end]
-
-        def penalty(m):
-            lg = LGMAP[m["lg"]]
-            v = 0.03 if m["src"] != "model" else -0.03      # gercek piyasa orani olan maclar daha guvenilir
-            if lg["tier"] > 1:
-                v -= 0.04
-            if m["lg"] == "fifa.friendly":                   # hazirlik maclari ongorulemez
-                v -= 0.06
-            return v
-
+        pool = window(today)
         cands = []
         for m in pool:
-            p = m["p"]
-            pr = {"1": p["p1"], "X": p["px"], "2": p["p2"], "1X": p["p1"] + p["px"], "X2": p["px"] + p["p2"],
-                  "12": p["p1"] + p["p2"], "O1.5": p["o15"], "U3.5": 1 - p["o35"],
-                  "O2.5": p["o25"], "U2.5": 1 - p["o25"], "KGV": p["btts"], "KGY": 1 - p["btts"]}
-            opts = [(pr[k], k, m["o"][k]) for k in pr if m["o"].get(k) and m["o"][k] >= 1.18
-                    and wins(k, *p["score"])]
+            opts = options(m)
             if not opts:
                 continue
             best = max(opts, key=lambda x: x[0] + 0.03 * min(x[2] - 1.18, 1))   # olasilik onde, oran ikinci
@@ -929,10 +980,6 @@ def molla(matches, done_by_id, src_team, use):
         picks = picks[:8] or cands[:3]
         picks.sort(key=lambda x: x[2]["d"])
 
-        def base(m):
-            return {"id": m["id"], "lg": m["lg"], "d": m["d"], "h": m["h"], "a": m["a"],
-                    "hn": src_team[m["h"]]["n"], "an": src_team[m["a"]]["n"]}
-
         def sprob(m):
             sc = m["p"]["score"]
             return next((x[2] for x in m["p"]["top"] if x[:2] == sc), m["p"]["top"][0][2])
@@ -941,9 +988,24 @@ def molla(matches, done_by_id, src_team, use):
         if picks:
             state["coupons"][today] = {
                 "v": 2, "until": until,
-                "picks": [dict(base(m), k=t[1], o=t[2], p=round(t[0], 3), sc=m["p"]["score"]) for _, t, m in picks],
+                "picks": [rec(t, m) for _, t, m in picks],
                 "scores": [dict(base(m), sc=m["p"]["score"], sp=round(sprob(m), 3)) for m in
                            sorted(best_sc, key=lambda m: m["d"])]}
+    # 2b) guncel kuponun yaninda yuksek oranli ve sistem kuponu (bir kez uretilir, sonra degismez)
+    keys = sorted(state["coupons"])
+    if keys:
+        cur = state["coupons"][keys[-1]]
+        if "hi" not in cur or "sys" not in cur:
+            pool = window(keys[-1])
+            if "hi" not in cur:
+                hc = high_coupon(pool)
+                if hc:
+                    cur["hi"] = hc
+            if "sys" not in cur:
+                avoid = {x["id"] for x in cur["picks"]} | {x["id"] for x in (cur.get("hi") or {}).get("picks", [])}
+                sc_ = system_coupon(pool, avoid)
+                if sc_:
+                    cur["sys"] = sc_
     # 3) eski kayitlari at, kaydet
     keep = (NOW - timedelta(days=400)).strftime("%Y-%m-%d")
     state["coupons"] = {k: v for k, v in state["coupons"].items() if k >= keep}
@@ -951,7 +1013,7 @@ def molla(matches, done_by_id, src_team, use):
     show = keep
     out = [dict(v, date=k) for k, v in sorted(state["coupons"].items(), reverse=True) if k >= show]
     for c in out:
-        for x in c["picks"] + c.get("scores", []):
+        for x in c["picks"] + c.get("scores", []) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", []):
             use(x["h"])
             use(x["a"])
     return {"today": today, "coupons": out}

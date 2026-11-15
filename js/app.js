@@ -285,6 +285,22 @@
     });
     return r;
   }
+  // ---- ek kuponlar: yuksek oranli (toplam oran 20+) ve sistem kuponu ----
+  const hiOf = c => (c && c.hi && c.hi.picks && c.hi.picks.length ? c.hi : null);
+  const sysOf = c => (c && c.sys && c.sys.picks && c.sys.picks.length ? c.sys : null);
+  const prodO = pk => pk.reduce((p, x) => p * x.o, 1);
+  function combos(arr, k) {
+    const out = [], go = (i, cur) => { if (cur.length === k) return out.push(cur); for (let j = i; j < arr.length; j++) go(j + 1, cur.concat([arr[j]])); };
+    go(0, []); return out;
+  }
+  function sysInfo(s) {
+    const N = s.picks.length, k = s.k, cs = combos(s.picks, k), per = Math.round(MIN_STAKE / cs.length * 100) / 100;
+    const ok = s.picks.filter(x => pkOk(x) === true).length, no = s.picks.filter(x => pkOk(x) === false).length;
+    const wcs = cs.filter(c => c.every(x => pkOk(x) === true));
+    return { N, k, cols: cs.length, per, ok, no, wcols: wcs.length, max: cs.reduce((a, c) => a + prodO(c) * per, 0), win: wcs.reduce((a, c) => a + prodO(c) * per, 0),
+      st: no > N - k ? 'lost' : ok >= k ? 'won' : 'pending' };
+  }
+  const kPicks = (c, kind) => (kind === 'hi' ? (hiOf(c) || {}).picks : kind === 'sys' ? (sysOf(c) || {}).picks : c.picks) || [];
   function molRow(pk, score) {
     const lg = LG[pk.lg] ? esc(ln(pk.lg)) : '';
     const tag = MATCH[pk.id] ? 'a' : 'div', href = MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : '';
@@ -304,7 +320,9 @@
       <div class="tipc-f"><div class="sum"><span>${t('total_odds')}</span><b class="num">${tot.toFixed(2)}</b></div>
       <div class="sum"><span>${fmt(t('tipc_min'), { s: MIN_STAKE })}</span><b class="num" style="color:var(--pri)">${money(Math.min(MIN_STAKE * tot, MAX_WIN))}</b></div>
       <div class="sum"><span>${t('m_week')}</span><b class="num"><span style="color:var(--pri)">${w.ok} ✓</span> · <span style="color:var(--red)">${w.no} ✗</span> · ${w.wait} •</b></div>
-      ${c.picks.some(pkLive) ? `<button class="btn" data-act="tipadd">${t('tipc_add')}</button>` : ''}
+      ${c.picks.some(pkLive) ? `<button class="btn" data-act="tipadd" data-cdate="${c.date}">${t('tipc_add')}</button>` : ''}
+      ${hiOf(c) ? `<a class="tipx" href="#/mollamyrat"><span>🔥 ${t('m_k_hi')} · ${hiOf(c).picks.length} ${t('selections')}</span><b class="num">${prodO(hiOf(c).picks).toFixed(2)}</b></a>` : ''}
+      ${sysOf(c) ? `<a class="tipx" href="#/mollamyrat"><span>🎯 ${t('m_k_sys')}</span><b class="num">${sysOf(c).k}/${sysOf(c).picks.length}</b></a>` : ''}
       <a class="btn ghost" href="#/mollamyrat">${t('m_track')} →</a></div></div>`;
   }
   function viewMolla() {
@@ -319,7 +337,28 @@
     const cpn = c => {
       const o = c.picks.filter(x => pkOk(x) === true).length, n = c.picks.filter(x => pkOk(x) === false).length;
       const st = n ? 'lost' : (o === c.picks.length ? 'won' : 'pending');
-      return `<div class="card tipc mc"><div class="tipc-h row"><b>${cRange(c)}</b>${shareBtn('share-molla', `data-cdate="${c.date}"`)}<span class="st ${st}">${t(st)}</span><small class="num">${o} ✓ · ${n} ✗ · ${c.picks.length - o - n} •</small></div>${c.picks.map(x => molRow(x)).join('')}</div>`;
+      let html = `<h3 class="mdate">${cRange(c)}</h3><div class="card tipc mc"><div class="tipc-h row"><b>★ ${t('m_k_main')}</b>${shareBtn('share-molla', `data-cdate="${c.date}"`)}<span class="st ${st}">${t(st)}</span><small class="num">${o} ✓ · ${n} ✗ · ${c.picks.length - o - n} •</small></div>${c.picks.map(x => molRow(x)).join('')}
+        <div class="tipc-f"><div class="sum"><span>${t('total_odds')}</span><b class="num">${prodO(c.picks).toFixed(2)}</b></div>
+        ${c.picks.some(pkLive) ? `<button class="btn" data-act="tipadd" data-cdate="${c.date}">${t('tipc_add')}</button>` : ''}</div></div>`;
+      const hi = hiOf(c), sy = sysOf(c);
+      if (hi) {
+        const ho = hi.picks.filter(x => pkOk(x) === true).length, hn = hi.picks.filter(x => pkOk(x) === false).length, tot = prodO(hi.picks);
+        const hs = hn ? 'lost' : (ho === hi.picks.length ? 'won' : 'pending');
+        html += `<div class="card tipc mc"><div class="tipc-h row"><b>🔥 ${t('m_k_hi')}</b>${shareBtn('share-molla', `data-cdate="${c.date}" data-ck="hi"`)}<span class="st ${hs}">${t(hs)}</span><small class="num">${ho} ✓ · ${hn} ✗ · ${hi.picks.length - ho - hn} •</small></div>${hi.picks.map(x => molRow(x)).join('')}
+          <div class="tipc-f"><div class="sum"><span>${t('total_odds')}</span><b class="num" style="color:var(--gold)">${tot.toFixed(2)}</b></div>
+          <div class="sum"><span>${fmt(t('tipc_min'), { s: MIN_STAKE })}</span><b class="num" style="color:var(--pri)">${money(Math.min(MIN_STAKE * tot, MAX_WIN))}</b></div>
+          ${hi.picks.some(pkLive) ? `<button class="btn" data-act="tipadd" data-cdate="${c.date}" data-ck="hi">${t('tipc_add')}</button>` : ''}</div></div>`;
+      }
+      if (sy) {
+        const S = sysInfo(sy);
+        html += `<div class="card tipc mc"><div class="tipc-h row"><b>🎯 ${t('m_k_sys')} ${S.k}/${S.N}</b>${shareBtn('share-molla', `data-cdate="${c.date}" data-ck="sys"`)}<span class="st ${S.st}">${t(S.st)}</span><small class="num">${S.ok} ✓ · ${S.no} ✗ · ${S.N - S.ok - S.no} •</small></div>${sy.picks.map(x => molRow(x)).join('')}
+          <div class="tipc-f"><div class="sum"><span>${fmt(t('sys_rule'), { k: S.k, n: S.N })}</span><b class="num">${S.cols} ${t('sys_cols')}</b></div>
+          <div class="sum"><span>${t('sys_per')} × ${S.cols}</span><b class="num">${money(S.per)} → ${money(MIN_STAKE)}</b></div>
+          <div class="sum"><span>${t('sys_max')}</span><b class="num" style="color:var(--pri)">${money(Math.min(S.max, MAX_WIN))}</b></div>
+          ${S.ok + S.no ? `<div class="sum"><span>${t('sys_wcols')}: ${S.wcols}/${S.cols}</span><b class="num" style="color:var(--gold)">${money(Math.min(S.win, MAX_WIN))}</b></div>` : ''}
+          <p class="note" style="margin:8px 0 0">${fmt(t('sys_note'), { k: S.k })}</p></div></div>`;
+      }
+      return html;
     };
     const range = x => `${dayShort(x.a)} – ${dayShort(x.b)}`;
     return `<div class="pagehead"><h1>★ ${t('tipc_title')}</h1><small>${t('m_note')}</small></div>
@@ -420,10 +459,18 @@
       slip.map(x => { const m = MATCH[x.m]; return { teams: tn(m.h) + ' – ' + tn(m.a), sub: mkLabel(x.k, m) + ' · ' + shortDate(m.d) + ' ' + timeOf(m.d), o: m.o[x.k].toFixed(2) }; }),
       { tot: tot.toFixed(2), stake: money(st), win: money(Math.min(st * tot, MAX_WIN)) }, slip);
   }
-  function shareMolla(date) {
-    const c = MOLLA.coupons.find(x => x.date === date) || MOLLA.coupons[0]; if (!c) return;
+  function shareMolla(date, kind) {
+    const c0 = MOLLA.coupons.find(x => x.date === date) || MOLLA.coupons[0]; if (!c0) return;
+    const pk = kPicks(c0, kind); if (!pk.length) return;
+    const rows = x => ({ teams: pkName(x, 'h') + ' – ' + pkName(x, 'a'), sub: mkLabel(x.k) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: x.o.toFixed(2), mark: mark(pkOk(x)) });
+    if (kind === 'sys') {
+      const S = sysInfo(c0.sys);
+      return shareCoupon('★ MollaMyrat · ' + t('m_k_sys') + ' ' + S.k + '/' + S.N, cRange(c0) + ' · ' + fmt(t('sys_rule'), { k: S.k, n: S.N }), pk.map(rows),
+        { tot: S.k + '/' + S.N + ' · ' + S.cols + ' ' + t('sys_cols'), stake: money(MIN_STAKE), win: money(Math.min(S.max, MAX_WIN)) }, pk.map(x => ({ m: x.id, k: x.k })));
+    }
+    const c = { picks: pk };
     const tot = c.picks.reduce((p, x) => p * x.o, 1);
-    shareCoupon('★ ' + t('tipc_title'), cRange(c) + ' · ' + fmt(t('tipc_sub'), { n: c.picks.length }),
+    shareCoupon('★ ' + (kind === 'hi' ? 'MollaMyrat · ' + t('m_k_hi') : t('tipc_title')), cRange(c0) + ' · ' + (kind === 'hi' ? c.picks.length + ' ' + t('selections') : fmt(t('tipc_sub'), { n: c.picks.length })),
       c.picks.map(x => ({ teams: pkName(x, 'h') + ' – ' + pkName(x, 'a'), sub: mkLabel(x.k) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: x.o.toFixed(2), mark: mark(pkOk(x)) })),
       { tot: tot.toFixed(2), stake: money(MIN_STAKE), win: money(Math.min(MIN_STAKE * tot, MAX_WIN)) }, c.picks.map(x => ({ m: x.id, k: x.k })));
   }
@@ -1266,7 +1313,8 @@
     if (m && isFavM(m)) return true;
     if (slip.some(x => x.m === id)) return true;
     if (coupons.some(c => c.status === 'pending' && c.sels.some(x => x.m === id))) return true;
-    return !!(MOLLA.coupons[0] && MOLLA.coupons[0].picks.some(x => x.id === id));
+    const c0 = MOLLA.coupons[0];
+    return !!(c0 && ['main', 'hi', 'sys'].some(k => kPicks(c0, k).some(x => x.id === id)));
   }
   function setLive(id, v) {
     const prev = LIVE[id];
@@ -1391,7 +1439,7 @@
     if (d.go) { flt.rday = undefined; location.hash = '#/' + d.go; return; }
     if (d.act === 'notif') return toggleNotif();
     if (d.act === 'share-slip') return shareSlip();
-    if (d.act === 'share-molla') return shareMolla(d.cdate);
+    if (d.act === 'share-molla') return shareMolla(d.cdate, d.ck);
     if (d.act === 'share-cpn') return shareUserCoupon(d.cid);
     if (d.ttab) { ttab = d.ttab; return render(); }
     if (d.rm) return toggleSel(d.rm, (slip.find(s => s.m === d.rm) || {}).k);
@@ -1405,7 +1453,7 @@
     if (d.act === 'amore') { flt.alim += 48; const y = scrollY; render(); scrollTo(0, y); return; }
     if (d.act === 'lvall') { flt.lvall = !flt.lvall; return paintLive(); }
     if (d.act === 'tipadd') {
-      slip = MOLLA.coupons[0].picks.filter(pkLive).map(x => ({ m: x.id, k: x.k })); LS.set('slip', slip); slipErr = '';
+      slip = kPicks(MOLLA.coupons.find(x => x.date === d.cdate) || MOLLA.coupons[0], d.ck).filter(pkLive).slice(0, MAX_SEL).map(x => ({ m: x.id, k: x.k })); LS.set('slip', slip); slipErr = '';
       toast(t('tipc_added')); syncObs(); renderSlip();
       if (matchMedia('(max-width:860px)').matches) document.body.classList.add('slipopen');
       return;
