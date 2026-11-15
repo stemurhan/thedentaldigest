@@ -15,8 +15,9 @@ import sys
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-URL = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
-KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
+# yapistirirken eklenen bosluk / satir sonlari temizlenir
+URL = "".join((os.environ.get("SUPABASE_URL") or "").split()).rstrip("/")
+KEY = "".join((os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").split())
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOW = datetime.now(timezone.utc)
 
