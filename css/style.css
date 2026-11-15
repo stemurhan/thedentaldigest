@@ -560,3 +560,10 @@ b.ls i{font-style:normal;font-weight:600;font-size:10px;margin-left:3px}
   .frow{grid-template-columns:50px minmax(0,1fr);gap:6px 10px}
   .frow .fp{grid-column:2;display:flex;flex-wrap:wrap;gap:8px;justify-items:start;align-items:center}
 }
+
+/* ---------- v9: kayitli kuponlar ---------- */
+.btn.ghost.svb{margin-top:8px;color:var(--gold);border-color:#5c4700;font-weight:700}
+.btn.ghost.svb:hover{background:#2b2206}
+.cpn.sv{border-color:#3d3413}
+.sv-a{display:flex;gap:8px;margin-top:10px}
+.sv-a .btn{flex:1;padding:10px;font-size:14px;margin:0}

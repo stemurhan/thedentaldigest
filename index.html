@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Ahal365 — Bülten, Analiz ve Tahmin</title>
-<meta name="description" content="Ahal365: günlük futbol bülteni, oranlar, detaylı maç analizi ve skor tahminleri.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; connect-src 'self' https://site.api.espn.com https://www.thesportsdb.com https://sbfmnyhxwgxshvjljbob.supabase.co wss://sbfmnyhxwgxshvjljbob.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'; worker-src 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Analiz365 — Bülten, Analiz ve Tahmin</title>
+<meta name="description" content="Analiz365: günlük futbol bülteni, oranlar, detaylı maç analizi ve skor tahminleri.">
 <meta name="theme-color" content="#0b1220">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Ahal365">
-<meta property="og:title" content="Ahal365 — Bülten, Analiz ve Tahmin">
+<meta property="og:site_name" content="Analiz365">
+<meta property="og:title" content="Analiz365 — Bülten, Analiz ve Tahmin">
 <meta property="og:description" content="Günlük futbol ve basketbol bülteni, canlı skorlar, detaylı maç analizi, skor tahminleri ve MollaMyrat'ın kuponu.">
 <meta property="og:url" content="https://thedentaldigest.org/">
 <meta property="og:image" content="https://thedentaldigest.org/img/icon.svg">
@@ -16,7 +18,7 @@
 <link rel="canonical" href="https://thedentaldigest.org/">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Ahal365">
+<meta name="apple-mobile-web-app-title" content="Analiz365">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="img/icon.svg">
@@ -25,9 +27,9 @@
 <body>
 <header class="top">
   <div class="top-in">
-    <a class="brand" href="#/" aria-label="Ahal365">
+    <a class="brand" href="#/" aria-label="Analiz365">
       <img src="img/icon.svg" alt="" width="34" height="34">
-      <span>Ahal<b>365</b></span>
+      <span>Analiz<b>365</b></span>
     </a>
     <nav class="nav" id="nav"></nav>
     <div class="top-r">
@@ -54,7 +56,7 @@
 <div class="scrim" id="scrim"></div>
 <div class="toast" id="toast" role="status"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" integrity="sha384-GFr3yTh5lJznCbZfpTtXnwboFsxqtTQoeTZCRHhE0579KrRmlCzen5AA8ohaB5ug" crossorigin="anonymous"></script>
 <script src="js/config.js"></script>
 <script src="data/data.js"></script>
 <script src="js/i18n.js"></script>

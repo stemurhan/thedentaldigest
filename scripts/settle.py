@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Ahal365 - uye kuponlarini sunucuda sonuclandirir (GitHub Actions, 20 dakikada bir).
+Analiz365 - uye kuponlarini sunucuda sonuclandirir (GitHub Actions, 20 dakikada bir).
 
 Bekleyen kuponlardaki maclarin sonuclarini ESPN / TheSportsDB'den okur ve
 veritabanindaki settle_coupons fonksiyonunu cagirir: kazanan kuponlarin kazanci
@@ -12,6 +12,7 @@ import gzip
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -53,7 +54,41 @@ def main():
     if not URL or not KEY:
         print("Supabase ayarlanmamis; sonuclandirma atlandi.")
         return
-    pend = sb("/rest/v1/coupons?status=eq.pending&select=sels&limit=5000") or []
+    kind = ("sb_secret" if KEY.startswith("sb_secret_") else "sb_publishable (YANLIS: gizli anahtar olmali)"
+            if KEY.startswith("sb_publishable_") else "JWT" if KEY.startswith("eyJ") else "tanimsiz")
+    try:
+        pend = sb("/rest/v1/coupons?status=eq.pending&select=id,sels&limit=5000") or []
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            # anahtarin kendisi yazdirilmaz; yalnizca turu ve uzunlugu
+            print(f"HATA: Supabase anahtari reddedildi ({e.code}). Anahtar turu: {kind}, uzunluk: {len(KEY)}. "
+                  "GitHub > Settings > Secrets > SUPABASE_SERVICE_ROLE_KEY degerini Supabase > API Keys > "
+                  "Secret keys satirindaki kopyala dugmesiyle yeniden yapistirin.")
+            sys.exit(1)
+        raise
+    # oran dogrulamasi: kupondaki oran, sitede yayinlanan en yuksek orandan fazlaysa kupon gecersiz
+    try:
+        oarc = json.load(open(os.path.join(ROOT, "data", "odds.json"), encoding="utf-8"))
+    except Exception:
+        oarc = {}
+    bad = []
+    for c in pend:
+        for s in c.get("sels") or []:
+            a = oarc.get(s.get("m"))
+            if not a:
+                continue
+            mx = a["o"].get(s.get("k"))
+            try:
+                o = float(s.get("o"))
+            except (TypeError, ValueError):
+                o = None
+            if o is None or mx is None or o > mx * 1.02 + 0.01:
+                bad.append(c["id"])
+                break
+    if bad:
+        n = sb("/rest/v1/rpc/void_coupons", "POST", {"p_ids": bad})
+        print(f"{n} kupon gecersiz sayildi (oran yayinlanandan yuksek)")
+        pend = [c for c in pend if c["id"] not in bad]
     need = {}
     for c in pend:
         for s in c.get("sels") or []:

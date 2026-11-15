@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Ahal365 - gunluk bulten guncelleme betigi.
+Analiz365 - gunluk bulten guncelleme betigi.
 
 Calistirma:  python scripts/update.py
 Cikti:       data/data.js  (site bu dosyayi okur)
@@ -9,7 +9,7 @@ Cikti:       data/data.js  (site bu dosyayi okur)
 Kaynaklar
   * ESPN acik veri akisi: fikstur, sonuc, kadro, oyuncu istatistikleri, NBA.
   * Ayni akistaki oran saglayicilari: once "Bet 365", yoksa diger saglayici
-    (or. DraftKings), o da yoksa Ahal365 modeli.
+    (or. DraftKings), o da yoksa Analiz365 modeli.
   * Wikidata: takim / ulke adlarinin Rusca, Turkce ve Turkmence karsiliklari.
 Puan tablolari (genel / ic saha / dis saha), form, aralarindaki maclar ve skor
 tahmini bu betikte hesaplanir.
@@ -937,7 +937,7 @@ def basketball():
 # ---- Ana akis --------------------------------------------------------------
 def main():
     t0 = time.time()
-    print("Ahal365 guncelleme basladi:", NOW.strftime("%Y-%m-%d %H:%M UTC"), flush=True)
+    print("Analiz365 guncelleme basladi:", NOW.strftime("%Y-%m-%d %H:%M UTC"), flush=True)
     start = datetime.strptime(HISTORY_START, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end = NOW + timedelta(days=DAYS_AHEAD + 1)
     days, d = [], start
@@ -1165,6 +1165,18 @@ def main():
     pkeep = (NOW - timedelta(days=45)).strftime("%Y-%m-%d")
     preds = {k: v for k, v in preds.items() if v["d"][:10] >= pkeep}
     cache_write(preds_path, preds)
+
+    # ---- oran arsivi: her pazar icin yayinlanan en yuksek oran (kupon dogrulamasi icin) ----
+    odds_path = os.path.join(ROOT, "data", "odds.json")
+    oarc = cache_read(odds_path) or {}
+    for m in matches + (bb or {}).get("matches", []):
+        rec = oarc.setdefault(m["id"], {"d": m["d"], "o": {}})
+        rec["d"] = m["d"]
+        for k, v in m["o"].items():
+            if v and v > rec["o"].get(k, 0):
+                rec["o"][k] = v
+    oarc = {k: v for k, v in oarc.items() if v["d"][:10] >= pkeep}
+    cache_write(odds_path, oarc)
 
     def attach(rows):
         for r in rows:

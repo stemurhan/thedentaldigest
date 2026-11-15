@@ -1,4 +1,4 @@
-/* Ahal365 — uygulama */
+/* Analiz365 — uygulama */
 (function () {
   'use strict';
   const D = window.AHAL_DATA || { leagues: [], teams: {}, tables: {}, matches: [], results: [], updated: null };
@@ -25,10 +25,10 @@
   let users = LS.get('users', {});
   let user = SB ? null : LS.get('user', null);
   if (!SB && user && !users[user]) user = null;
-  let coupons = [], balance = 0, authErr = { login: '', reg: '' }, profile = null, busy = false;
+  let coupons = [], saved = [], balance = 0, authErr = { login: '', reg: '' }, profile = null, busy = false;
   const ukey = k => k + '_' + user;
-  function loadUser() { if (SB) return; coupons = user ? LS.get(ukey('coupons'), []) : []; balance = user ? LS.get(ukey('balance'), START_BAL) : 0; }
-  const saveUser = () => { if (!SB && user) { LS.set(ukey('coupons'), coupons); LS.set(ukey('balance'), balance); } };
+  function loadUser() { if (SB) return; coupons = user ? LS.get(ukey('coupons'), []) : []; saved = user ? LS.get(ukey('saved'), []) : []; balance = user ? LS.get(ukey('balance'), START_BAL) : 0; }
+  const saveUser = () => { if (!SB && user) { LS.set(ukey('coupons'), coupons); LS.set(ukey('saved'), saved); LS.set(ukey('balance'), balance); } };
   loadUser();
   const uinfo = () => (SB ? (profile ? { name: profile.display_name, phone: profile.phone, since: Date.parse(profile.created_at) } : null) : users[user]);
   const sbEmail = u => u.trim().toLowerCase() + '@' + EMAIL_DOMAIN;
@@ -47,14 +47,16 @@
   async function sbLoad() {
     const { data } = await SB.auth.getSession();
     const ses = data && data.session;
-    if (!ses) { user = null; profile = null; coupons = []; balance = 0; return; }
-    const [pr, cp] = await Promise.all([
+    if (!ses) { user = null; profile = null; coupons = []; saved = []; balance = 0; return; }
+    const [pr, cp, sv] = await Promise.all([
       SB.from('profiles').select('*').eq('id', ses.user.id).single(),
-      SB.from('coupons').select('*').order('created_at', { ascending: false }).limit(100)
+      SB.from('coupons').select('*').order('created_at', { ascending: false }).limit(100),
+      SB.from('saved_coupons').select('*').order('created_at', { ascending: false }).limit(100)
     ]);
     if (pr.error || !pr.data) { user = null; profile = null; return; }
     profile = pr.data; user = profile.username; balance = +profile.balance;
     coupons = (cp.data || []).map(mapCoupon);
+    saved = (sv.data || []).map(r => ({ id: r.id, ts: Date.parse(r.created_at), name: r.name, sels: r.sels || [] }));
     const srv = Array.isArray(profile.favs) ? profile.favs : [];
     const merged = new Set(srv.concat([...FAV]));
     if (merged.size !== srv.length) SB.from('profiles').update({ favs: [...merged] }).eq('id', profile.id).then(() => { });
@@ -105,7 +107,7 @@
     const tm = team(id), ini = esc((tm.s || tm.n).replace(/[^A-Za-zÀ-ÿА-я]/g, '').slice(0, 2).toUpperCase());
     const c = 'logo' + (cls ? ' ' + cls : '');
     return tm.l
-      ? `<img class="${c}" src="${esc(tm.l)}" alt="" loading="${cls === 'sm' ? 'eager' : 'lazy'}" decoding="async" onerror="this.outerHTML='<span class=&quot;${c} ph&quot;>${ini}</span>'">`
+      ? `<img class="${c}" src="${esc(tm.l)}" alt="" loading="${cls === 'sm' ? 'eager' : 'lazy'}" decoding="async" data-ini="${ini}">`
       : `<span class="${c} ph">${ini}</span>`;
   }
   const pair = (h, a, hn, an) => `<span class="pair" title="${esc(hn)} – ${esc(an)}"><span class="ts">${logo(h, 'sm')}<span class="nm">${esc(hn)}</span></span><span class="sep">–</span><span class="ts">${logo(a, 'sm')}<span class="nm">${esc(an)}</span></span></span>`;
@@ -114,7 +116,7 @@
   const SHARE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>';
   const shareBtn = (act, extra) => `<button type="button" class="shr" data-act="${act}" ${extra || ''} title="${t('share')}" aria-label="${t('share')}">${SHARE_ICON}</button>`;
   const badge = lg => `<span class="cc">${GBADGE[(LG[lg] || {}).g] || 'NBA'}</span>`;
-  const srcName = s => (s === 'model' ? 'Ahal365' : s);
+  const srcName = s => (s === 'model' ? 'Analiz365' : s);
   const srcBadge = s => `<span class="srcb ${s === 'model' ? 'm' : ''}">${esc(srcName(s))}</span>`;
 
   function mkLabel(k, m, line) {
@@ -226,7 +228,7 @@
     $('foot').innerHTML = `
       <div class="fl"><span class="age">18+</span><span>${t('foot_18')}</span></div>
       <div class="fl"><span>${t('foot_disc')}</span></div>
-      <div class="fl"><a href="#/kurallar">${t('rules')}</a><span>${t('updated')}: ${up}</span><span>${t('tznote')}</span><span>© ${new Date().getFullYear()} Ahal365</span></div>`;
+      <div class="fl"><a href="#/kurallar">${t('rules')}</a><span>${t('updated')}: ${up}</span><span>${t('tznote')}</span><span>© ${new Date().getFullYear()} Analiz365</span></div>`;
     document.documentElement.lang = lang;
     $('lang').value = lang;
     $('slip').setAttribute('aria-label', t('coupon'));
@@ -347,7 +349,7 @@
     if (notifOn()) { LS.set('notif', false); return render(); }
     if (!notifSup()) return;
     const perm = await Notification.requestPermission();
-    if (perm === 'granted') { LS.set('notif', true); notify('🔔 ' + t('notif_enabled'), 'Ahal365', 'notif'); }
+    if (perm === 'granted') { LS.set('notif', true); notify('🔔 ' + t('notif_enabled'), 'Analiz365', 'notif'); }
     render();
   }
 
@@ -363,8 +365,8 @@
     g.fillStyle = gr; g.fillRect(0, 0, W, 200);
     g.fillStyle = '#12c48b'; rrect(g, 60, 52, 96, 96, 24); g.fill();
     g.fillStyle = '#fff'; g.font = F(800, 64); g.textAlign = 'center'; g.fillText('A', 108, 124);
-    g.textAlign = 'left'; g.font = F(800, 56); g.fillStyle = '#e9eefb'; g.fillText('Ahal', 182, 108);
-    const aw = g.measureText('Ahal').width; g.fillStyle = '#f5b301'; g.fillText('365', 182 + aw, 108);
+    g.textAlign = 'left'; g.font = F(800, 56); g.fillStyle = '#e9eefb'; g.fillText('Analiz', 182, 108);
+    const aw = g.measureText('Analiz').width; g.fillStyle = '#f5b301'; g.fillText('365', 182 + aw, 108);
     g.font = F(700, 32); g.fillStyle = '#e9eefb'; g.fillText(fitText(g, title, W - 250), 182, 154);
     g.font = F(500, 26); g.fillStyle = '#8c9bbb'; g.fillText(fitText(g, sub, W - 250), 182, 188);
     rows.forEach((r, i) => {
@@ -395,9 +397,9 @@
     const url = location.origin + location.pathname + (live.length ? '#/k/' + encodeURIComponent(live.map(x => x.m + ':' + x.k).join(',')) : '');
     const cv = couponCanvas(title, sub, rows, foot);
     const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
-    const file = new File([blob], 'ahal365-kupon.png', { type: 'image/png' });
+    const file = new File([blob], 'analiz365-kupon.png', { type: 'image/png' });
     try {
-      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Ahal365', text: title + '\n' + url }); return; }
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Analiz365', text: title + '\n' + url }); return; }
     } catch (e) { if (e && e.name === 'AbortError') return; }
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name;
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
@@ -902,6 +904,7 @@
         <div class="sum win"><span>${t('max_win')}</span><b id="s-win"></b></div>
         <div class="err" id="s-err" role="alert">${esc(slipErr)}</div>
         <button class="btn" data-act="play">${t('play')}</button>
+        <button class="btn ghost svb" data-act="save-slip">☆ ${t('save_coupon')}</button>
         <div class="slipnote">${t('min_stake')}</div>
       </div></div>${sideTip()}`;
     updWin();
@@ -925,6 +928,47 @@
     LS.set('slip', slip);
     syncObs(); renderSlip();
   }
+  const slipSels = () => slip.map(x => { const m = MATCH[x.m]; return { m: x.m, k: x.k, o: m.o[x.k], hi: m.h, ai: m.a, h: tn(m.h), a: tn(m.a), d: m.d, ln: m.line, lg: m.lg || 'nba' }; });
+  let savingC = false;
+  async function saveSlip() {
+    if (!slip.length || savingC) return;
+    if (!user) { document.body.classList.remove('slipopen'); toast(t('login_first_save')); location.hash = '#/profil'; return; }
+    if (cleanSlip()) { slipErr = t('started'); syncObs(); return renderSlip(); }
+    if (saved.length >= 100) return toast(t('saved_full'));
+    const sc = { id: 'S' + Date.now().toString().slice(-9) + String(10 + Math.floor(Math.random() * 90)), ts: Date.now(),
+      name: shortDate(Date.now()) + ' · ' + slip.length + ' ' + t('selections'), sels: slipSels() };
+    if (SB) {
+      savingC = true;
+      const { error } = await SB.from('saved_coupons').insert({ id: sc.id, user_id: profile.id, name: sc.name, sels: sc.sels });
+      savingC = false;
+      if (error) return toast(/saved_limit/.test(error.message || '') ? t('saved_full') : sbErr(error));
+    }
+    saved.unshift(sc); saveUser();
+    toast(t('saved_ok'));
+  }
+  function trackSaved() {
+    saved.forEach(c => {
+      let ch = false;
+      c.sels.forEach(x => { const r = RES[x.m]; if (r && x.ok === undefined) { x.res = r.hs + '-' + r.as; x.ok = wins(x.k, r.hs, r.as, x.ln); ch = true; } });
+      if (!ch) return;
+      if (SB && profile) SB.from('saved_coupons').update({ sels: c.sels }).eq('id', c.id).then(() => { });
+      else saveUser();
+    });
+  }
+  async function delSaved(id) {
+    if (!confirm(t('sv_confirm'))) return;
+    if (SB) { const { error } = await SB.from('saved_coupons').delete().eq('id', id); if (error) return toast(sbErr(error)); }
+    saved = saved.filter(c => c.id !== id); saveUser(); render();
+  }
+  function loadSaved(id) {
+    const c = saved.find(x => x.id === id); if (!c) return;
+    const ok = c.sels.filter(x => MATCH[x.m] && future(MATCH[x.m]) && MATCH[x.m].o[x.k]).slice(0, MAX_SEL);
+    if (!ok.length) return toast(t('share_none'));
+    slip = ok.map(x => ({ m: x.m, k: x.k })); LS.set('slip', slip); slipErr = '';
+    toast(fmt(t('sv_loaded'), { n: ok.length }) + (ok.length < c.sels.length ? ' · ' + fmt(t('sv_skipped'), { n: c.sels.length - ok.length }) : ''));
+    syncObs(); renderSlip();
+    if (matchMedia('(max-width:860px)').matches) document.body.classList.add('slipopen');
+  }
   let playing = false;
   async function play() {
     if (playing) return;
@@ -940,7 +984,7 @@
     const c = {
       id: 'A' + Date.now().toString().slice(-9) + String(10 + Math.floor(Math.random() * 90)), ts: Date.now(), stake: st, odds: tot,
       win: Math.min(Math.round(st * tot * 100) / 100, MAX_WIN), status: 'pending',
-      sels: slip.map(s => { const m = MATCH[s.m]; return { m: s.m, k: s.k, o: m.o[s.k], hi: m.h, ai: m.a, h: tn(m.h), a: tn(m.a), d: m.d, ln: m.line, lg: m.lg || 'nba' }; })
+      sels: slipSels()
     };
     if (SB) {
       playing = true; slipErr = ''; renderSlip();
@@ -966,6 +1010,7 @@
     return c.sels.length && c.sels.every(x => x.ok === true) ? 'won_wait' : 'pending';
   }
   function settle() {
+    trackSaved();
     if (SB) {
       coupons.forEach(c => c.sels.forEach(x => { const r = RES[x.m]; if (r && x.ok === undefined) { x.res = r.hs + '-' + r.as; x.ok = wins(x.k, r.hs, r.as, x.ln); } }));
       return;
@@ -991,12 +1036,35 @@
     let html = `<div class="pagehead"><h1>${t('mycoupons')}</h1></div>
       <div class="card cpn"><div class="cpn-h"><span class="mut">${t('demo_balance')}</span><b style="font-size:20px;color:var(--pri)" class="num">${money(balance)}</b>
       <button class="chip" style="margin-left:auto" data-act="resetbal">${t('reset_balance')}</button></div></div>`;
+    const tab = flt.ctab === 'saved' ? 'saved' : 'played';
+    html += `<div class="seg" role="tablist"><button class="${tab === 'played' ? 'on' : ''}" data-ctab="played">${t('played_t')} (${coupons.length})</button><button class="${tab === 'saved' ? 'on' : ''}" data-ctab="saved">☆ ${t('saved_t')} (${saved.length})</button></div>`;
+    if (tab === 'saved') return html + (saved.length ? saved.map(c => savedCard(c, nm)).join('') : `<div class="card empty">${t('no_saved')}</div>`);
     if (!coupons.length) return html + `<div class="card empty">${t('no_coupons')}</div>`;
     return html + coupons.map(c => `<div class="card cpn">
       <div class="cpn-h"><b>${t('coupon_no')}: ${esc(c.id)}</b>${shareBtn('share-cpn', `data-cid="${esc(c.id)}"`)}<span class="st ${dispStatus(c) === 'won_wait' ? 'won' : dispStatus(c)}">${t(dispStatus(c))}</span><span class="mut num" style="margin-left:auto">${shortDate(c.ts)} ${timeOf(c.ts)}</span></div>
       ${c.sels.map(s => `<div class="row"><span class="rl">${pair(s.hi, s.ai, nm(s, 'h'), nm(s, 'a'))}<small class="mut">${esc(mkLabel(s.k, null, s.ln))} · ${shortDate(s.d)} ${timeOf(s.d)}${s.res ? ' · ' + esc(s.res) : ''}</small></span><span class="r ${s.ok === true ? 'ok' : s.ok === false ? 'no' : ''}">${s.o.toFixed(2)}</span></div>`).join('')}
       <div class="cpn-f"><span>${t('stake')}: <b>${money(c.stake)}</b></span><span>${t('total_odds')}: <b>${c.odds.toFixed(2)}</b></span><span>${t(c.status === 'won' ? 'payout' : 'max_win')}: <b>${money(c.win)}</b></span></div>
     </div>`).join('');
+  }
+  function savedCard(c, nm) {
+    const ok = c.sels.filter(x => x.ok === true).length, no = c.sels.filter(x => x.ok === false).length;
+    const st = no ? 'lost' : ok === c.sels.length ? 'won' : 'track';
+    const tot = c.sels.reduce((p, x) => p * x.o, 1);
+    const live = c.sels.filter(x => MATCH[x.m] && future(MATCH[x.m]) && MATCH[x.m].o[x.k]).length;
+    return `<div class="card cpn sv">
+      <div class="cpn-h"><b>☆ ${esc(c.name || '')}</b><span class="st ${st === 'track' ? 'pending' : st}">${t(st === 'track' ? 's_track' : st)}</span>${shareBtn('share-saved', `data-sid="${esc(c.id)}"`)}<span class="mut num" style="margin-left:auto">${shortDate(c.ts)} ${timeOf(c.ts)}</span></div>
+      ${c.sels.map(x => `<div class="row"><span class="rl">${pair(x.hi, x.ai, nm(x, 'h'), nm(x, 'a'))}<small class="mut">${esc(mkLabel(x.k, null, x.ln))} · ${shortDate(x.d)} ${timeOf(x.d)}${x.res ? ' · ' + esc(x.res) : `<span data-lv="${esc(x.m)}"></span>`}</small></span><span class="r ${x.ok === true ? 'ok' : x.ok === false ? 'no' : ''}">${(+x.o).toFixed(2)}</span></div>`).join('')}
+      <div class="cpn-f"><span>${t('total_odds')}: <b>${tot.toFixed(2)}</b></span><span><b style="color:var(--pri)">${ok} ✓</b> · <b style="color:var(--red)">${no} ✗</b> · ${c.sels.length - ok - no} •</span><span>${fmt(t('tipc_min'), { s: MIN_STAKE })}: <b>${money(Math.min(MIN_STAKE * tot, MAX_WIN))}</b></span></div>
+      <div class="sv-a">${live ? `<button class="btn" data-act="sv-load" data-sid="${esc(c.id)}">${t('sv_play')} (${live})</button>` : ''}<button class="btn ghost" data-act="sv-del" data-sid="${esc(c.id)}">${t('sv_del')}</button></div>
+    </div>`;
+  }
+  function shareSaved(id) {
+    const c = saved.find(x => x.id === id); if (!c) return;
+    const nm = (x, side) => { const i = x[side + 'i']; return i && D.teams[i] ? tn(i) : x[side]; };
+    const tot = c.sels.reduce((p, x) => p * x.o, 1);
+    shareCoupon('☆ ' + (c.name || t('saved_t')), shortDate(c.ts) + ' ' + timeOf(c.ts),
+      c.sels.map(x => ({ teams: nm(x, 'h') + ' – ' + nm(x, 'a'), sub: mkLabel(x.k, null, x.ln) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: (+x.o).toFixed(2), mark: mark(x.ok) })),
+      { tot: tot.toFixed(2), stake: money(MIN_STAKE), win: money(Math.min(MIN_STAKE * tot, MAX_WIN)) }, c.sels.map(x => ({ m: x.m, k: x.k })));
   }
   const viewRules = () => `<div class="pagehead"><h1>${t('r_title')}</h1></div><div class="card rules"><ol>${t('r_items').map(x => `<li>${esc(x)}</li>`).join('')}</ol><p class="note">${t('max_win_note')}</p></div>`;
 
@@ -1143,7 +1211,7 @@
     else if (h.startsWith('#/profil')) { html = viewProfile(); title = t('profile'); }
     else { html = viewBulletin(); title = t('bulletin'); }
     $('main').innerHTML = html;
-    document.title = title + ' — Ahal365';
+    document.title = title + ' — Analiz365';
     renderChrome(); renderSide(); renderSlip(); syncStrips(); paintLive();
     if (h !== lastRoute) { window.scrollTo(0, 0); lastRoute = h; }
   }
@@ -1180,6 +1248,11 @@
     if (d.rm) return toggleSel(d.rm, (slip.find(s => s.m === d.rm) || {}).k);
     if (d.q) { stake = +d.q; LS.set('stake', stake); const i = $('stake'); if (i) i.value = stake; slipErr = ''; $('s-err').textContent = ''; return updWin(); }
     if (d.act === 'play') return play();
+    if (d.act === 'save-slip') return saveSlip();
+    if (d.act === 'sv-load') return loadSaved(d.sid);
+    if (d.act === 'sv-del') return delSaved(d.sid);
+    if (d.act === 'share-saved') return shareSaved(d.sid);
+    if (d.ctab) { flt.ctab = d.ctab; return render(); }
     if (d.act === 'amore') { flt.alim += 48; const y = scrollY; render(); scrollTo(0, y); return; }
     if (d.act === 'lvall') { flt.lvall = !flt.lvall; return paintLive(); }
     if (d.act === 'tipadd') {
@@ -1195,7 +1268,7 @@
       balance = START_BAL; saveUser(); return render();
     }
     if (d.act === 'logout') {
-      if (SB) { SB.auth.signOut().finally(() => { user = null; profile = null; coupons = []; balance = 0; render(); }); return; }
+      if (SB) { SB.auth.signOut().finally(() => { user = null; profile = null; coupons = []; saved = []; balance = 0; render(); }); return; }
       user = null; LS.set('user', null); loadUser(); return render();
     }
   });
@@ -1222,6 +1295,15 @@
   window.addEventListener('resize', syncStrips);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') document.body.classList.remove('slipopen'); });
 
+  // amblem yuklenemezse bas harfli yer tutucu (satir ici onerror yok: CSP uyumlu)
+  document.addEventListener('error', e => {
+    const el = e.target;
+    if (el && el.tagName === 'IMG' && el.classList.contains('logo')) {
+      const sp = document.createElement('span');
+      sp.className = el.className + ' ph'; sp.textContent = el.dataset.ini || '';
+      el.replaceWith(sp);
+    }
+  }, true);
   cleanSlip(); settle(); render();
   if (SB) sbLoad().then(() => { settle(); render(); }).catch(() => { });
   (function () {   // yeni MollaMyrat kuponu haber ver (ilk ziyarette degil)

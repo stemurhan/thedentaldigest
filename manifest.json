@@ -1,6 +1,6 @@
 {
-  "name": "Ahal365",
-  "short_name": "Ahal365",
+  "name": "Analiz365",
+  "short_name": "Analiz365",
   "description": "Günlük futbol bülteni, oranlar, maç analizi ve skor tahminleri",
   "start_url": "./index.html",
   "scope": "./",

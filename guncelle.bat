@@ -1,5 +1,5 @@
 @echo off
-rem Ahal365 - bulteni gunceller. Parametresiz: pencere acik kalir. "auto": sessiz calisir, guncelle.log'a yazar.
+rem Analiz365 - bulteni gunceller. Parametresiz: pencere acik kalir. "auto": sessiz calisir, guncelle.log'a yazar.
 cd /d "%~dp0"
 if "%1"=="" (
   python scripts\update.py
