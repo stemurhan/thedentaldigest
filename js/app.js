@@ -62,7 +62,7 @@
     if (merged.size !== srv.length) SB.from('profiles').update({ favs: [...merged] }).eq('id', profile.id).then(() => { });
     FAV = merged; LS.set('fav', [...FAV]);
   }
-  const flt = { lg: 'all', day: null, q: '', alim: 48, lvall: false };
+  const flt = { lg: 'all', day: 'all', q: '', alim: 48, lvall: false, blim: 3, rlim: 2 };
   let FAV = new Set(LS.get('fav', []));
   const isFavM = m => FAV.has(m.h) || FAV.has(m.a);
   const lgOk = m => flt.lg === 'all' || (flt.lg === 'fav' ? isFavM(m) : m.lg === flt.lg);
@@ -199,14 +199,11 @@
       c.onscroll = upd; upd();
     });
   }
-  function dayStrip(days) {
-    return strip(`<button class="chip day ${flt.day === 'all' ? 'on' : ''}" data-day="all"><small>${t('alldays_s')}</small>${t('all')}</button>` +
-      days.map(d => { const p = keyParts(d); return `<button class="chip day ${flt.day === d ? 'on' : ''}" data-day="${d}"><small>${relDay(d) || t('wd')[p.wd]}</small>${dayShort(d)}</button>`; }).join(''), 'days');
-  }
+  // gun seridi kaldirildi: sayfalar tum gunleri gun basliklariyla alt alta gosterir
+  const dayStrip = () => '';
   function pickDay(list) {
-    const days = [...new Set(list.map(m => dayKey(m.d)))].sort();
-    if (flt.day !== 'all' && !days.includes(flt.day)) flt.day = days[0] || 'all';
-    return days;
+    flt.day = 'all';
+    return [...new Set(list.map(m => dayKey(m.d)))].sort();
   }
 
   // ---------- kabuk ----------
@@ -365,7 +362,7 @@
       return parts[mk] ? head + parts[mk] : '';
     };
     const range = x => `${dayShort(x.a)} – ${dayShort(x.b)}`;
-    return `<div class="pagehead"><h1>★ ${t('tipc_title')}</h1><small>${t('m_note')}</small></div>${seg}
+    return `<div class="pagehead"><h1>★ ${t('tipc_title')}</h1></div>${seg}
       <h2 class="dayhead">${t('m_coupons')}</h2>
       ${w.cs.map(cpn).join('') || `<div class="card empty">${t('m_none')}</div>`}
       <div class="card sec"><h2>${t('m_week')} <small class="mut num">${range(w)}</small></h2>${box(w)}</div>
@@ -635,12 +632,15 @@
     if (!list.length) return `<div class="card empty">${t('nomatch')}</div>`;
     let html = '';
     const order = {}; D.leagues.forEach((l, i) => { order[l.id] = i; });
-    [...new Set(list.map(m => dayKey(m.d)))].sort().forEach(dk => {
+    const dks = [...new Set(list.map(m => dayKey(m.d)))].sort(), lim = q || flt.lg !== 'all' ? dks.length : flt.blim;
+    dks.slice(0, lim).forEach(dk => {
       const ms = list.filter(m => dayKey(m.d) === dk).sort((a, b) => byDate(a, b) || order[a.lg] - order[b.lg]);
       html += `<h2 class="dayhead">${dayLabel(dk)} <small>${ms.length} ${t('selections')}</small></h2><section class="card lgblock">
         <div class="mkhead"><span></span><span>${t('ms')}</span><span>${t('ou')} 2.5</span><span>${t('btts')}</span><span></span></div>
         ${ms.map(row).join('')}</section>`;
     });
+    const rest = dks.slice(lim).reduce((n, dk) => n + list.filter(m => dayKey(m.d) === dk).length, 0);
+    if (rest) html += `<button class="btn ghost more" data-act="bmore">${fmt(t('show_more'), { n: rest })}</button>`;
     return html;
   }
   function row(m, wd) {
@@ -1026,23 +1026,30 @@
       .map(m => ({ id: m.id, lg: m.lg, d: m.d, h: m.h, a: m.a, hs: LIVE[m.id].hs, as: LIVE[m.id].as, pr: predOf(m) }));
     const all = liveRes.concat(src).filter(r => bb || lgOk(r));
     const days = [...new Set(all.map(r => dayKey(r.d)))].sort().reverse();
-    if (!days.includes(flt.rday)) flt.rday = days[0];
-    const list = all.filter(r => dayKey(r.d) === flt.rday).sort((x, y) => byDate(x, y));
+    const list = all;
     const wp = list.filter(r => r.pr), tipOk = wp.filter(r => wins(r.pr.k, r.hs, r.as, r.pr.ln)).length;
     const scOk = wp.filter(r => (bb ? (r.pr.sc[0] > r.pr.sc[1]) === (r.hs > r.as) : r.pr.sc[0] === r.hs && r.pr.sc[1] === r.as)).length;
     const A = (bb ? D.accbb : D.acc) || { n: 0 };
     let html = `<div class="pagehead"><h1>${t('results')}</h1><small>${t('fin_note')}</small></div>
       ${spSeg()}
-      ${strip(days.map(d => { const p = keyParts(d); return `<button class="chip day ${flt.rday === d ? 'on' : ''}" data-rday="${d}"><small>${relDay(d) || t('wd')[p.wd]}</small>${dayShort(d)}</button>`; }).join(''), 'days')}
       ${bb ? '' : lgChips(new Set(D.results.map(r => r.lg)), true)}`;
     if (!list.length) return html + `<div class="card empty">${t('nomatch')}</div>`;
-    html += `<div class="card sec facc" style="margin-top:0"><h2>${t('fin_day')} <small class="mut">${dayLabel(flt.rday)}</small></h2><div class="kpis">
+    html += `<div class="card sec facc" style="margin-top:0"><h2>${t('fin_all')}</h2><div class="kpis">
       <div class="kpi"><small>${t('c_played')}</small><b>${list.length}</b></div>
       <div class="kpi"><small>${t('f_tip')}</small><b style="color:var(--pri)">${wp.length ? tipOk + '/' + wp.length : '–'}</b></div>
       <div class="kpi"><small>${t(bb ? 'f_win' : 'f_sc')}</small><b style="color:var(--gold)">${wp.length ? scOk + '/' + wp.length : '–'}</b></div>
       <div class="kpi"><small>${t('fin_30')}</small><b>${A.n ? pct(A.tip / A.n) + '%' : '–'}</b></div></div></div>`;
-    return html + `<section class="card lgblock">${list.map(r => finRow(r, bb)).join('')}</section>`;
+    // tum gunler alt alta (en yeni ustte); uzun liste parca parca acilir
+    const lim = !bb && flt.lg !== 'all' ? days.length : flt.rlim;
+    days.slice(0, lim).forEach(dk => {
+      const rs = list.filter(r => dayKey(r.d) === dk).sort(byDate);
+      html += `<h2 class="dayhead">${dayLabel(dk)} <small>${rs.length} ${t('selections')}</small></h2><section class="card lgblock">${rs.map(r => finRow(r, bb)).join('')}</section>`;
+    });
+    const rest = days.slice(lim).reduce((n, dk) => n + list.filter(r => dayKey(r.d) === dk).length, 0);
+    if (rest) html += `<button class="btn ghost more" data-act="rmore">${fmt(t('show_more'), { n: rest })}</button>`;
+    return html;
   }
+
 
   // ---------- basketbol ----------
   function viewBasketball() {
@@ -1469,6 +1476,7 @@
     if (d.act === 'sv-del') return delSaved(d.sid);
     if (d.act === 'share-saved') return shareSaved(d.sid);
     if (d.ctab) { flt.ctab = d.ctab; return render(); }
+    if (d.act === 'bmore' || d.act === 'rmore') { flt[d.act === 'bmore' ? 'blim' : 'rlim'] = 999; const y = scrollY; render(); scrollTo(0, y); return; }
     if (d.act === 'amore') { flt.alim += 48; const y = scrollY; render(); scrollTo(0, y); return; }
     if (d.act === 'lvall') { flt.lvall = !flt.lvall; return paintLive(); }
     if (d.act === 'tipadd') {
