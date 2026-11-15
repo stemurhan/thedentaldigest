@@ -2,7 +2,9 @@ name: Kuponlari sonuclandir
 
 on:
   schedule:
-    - cron: "*/20 * * * *"   # 20 dakikada bir: biten maclarin kuponlari, kazanc bakiyeye
+    # GitHub zamanlanmis gorevleri yogunlukta atlayabiliyor: saatte iki tetik (kalabalik olmayan
+    # dakikalar) ve her tetikte ~25 dk boyunca 8 dakikada bir sonuclandirma yapilir
+    - cron: "7,37 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -15,7 +17,7 @@ concurrency:
 jobs:
   sonuclandir:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,4 +27,9 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python scripts/settle.py
+        run: |
+          for i in 1 2 3 4; do
+            git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD || true
+            python scripts/settle.py || exit 1
+            [ "$i" = 4 ] || sleep 480
+          done
