@@ -36,7 +36,8 @@ def http(url, method="GET", body=None, headers=None):
 
 
 def sb(path, method="GET", body=None):
-    h = {"apikey": KEY, "Content-Type": "application/json"}
+    # Supabase gizli anahtari tarayici gibi gorunen isteklerde reddeder: sunucu kimligi kullanilir
+    h = {"apikey": KEY, "Content-Type": "application/json", "User-Agent": "analiz365-settle/1.0 (python-urllib)"}
     if KEY.startswith("eyJ"):            # eski tip (JWT) anahtar; yeni "sb_secret_" anahtarlari yalnizca apikey ile
         h["Authorization"] = "Bearer " + KEY
     return http(URL + path, method, body, h)
