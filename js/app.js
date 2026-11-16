@@ -998,6 +998,82 @@
         ${cmpRow(pc(sh.btts, sh.p), t('c_btts'), pc(sa.btts, sa.p))}
       </tbody></table></div>${aiMatchBlock(m)}`;
   }
+  function tabOdds(m) {
+    const grp = (title, ks, cols, src) => `<div class="card sec"><h2>${title} ${srcBadge(src)}</h2><div class="og c${cols}">${ks.map(k => ob(m, k)).join('')}</div></div>`;
+    const ss = m.ss || { ms: m.src, dc: m.src === 'bet365' ? 'bet365' : 'model', ou25: m.ou || 'model', ou15: 'model', ou35: 'model', kg: 'model' };
+    return grp(t('ms'), ['1', 'X', '2'], 3, ss.ms) + grp(t('dc'), ['1X', '12', 'X2'], 3, ss.dc)
+      + grp(t('ou') + ' 2.5', ['U2.5', 'O2.5'], 2, ss.ou25)
+      + grp(t('ou') + ' 1.5', ['U1.5', 'O1.5'], 2, ss.ou15)
+      + grp(t('ou') + ' 3.5', ['U3.5', 'O3.5'], 2, ss.ou35)
+      + grp(t('btts'), ['KGV', 'KGY'], 2, ss.kg)
+      + `<p class="note">${srcNote(m)}</p>`;
+  }
+
+  function tabForm(m) {
+    const L = RL();
+    const fl = (id, f) => `<div class="card sec"><h2>${logo(id)} ${esc(tn(id))} · ${t('last_matches')}</h2><div class="gl">${f.length ? f.map(g =>
+      `<div class="g"><span class="f ${g.r}">${esc(L[g.r].slice(0, 1))}</span><span class="mut num">${shortDate(g.d)}</span>
+       <span class="o">${logo(g.o, 'sm')} ${g.ha === 'H' ? '' : '<span class="mut">@</span> '}${esc(tn(g.o))} <small class="mut">${esc(ln(g.lg))}</small></span><span class="sc">${g.gf} - ${g.ga}</span></div>`).join('') : `<div class="empty">–</div>`}</div></div>`;
+    const h2h = m.h2h.length ? `<div class="gl h2h">${m.h2h.map(g => `<div class="g"><span class="mut num">${shortDate(g.d)}.${g.d.slice(2, 4)}</span><span class="o">${esc(tn(g.h))} ${logo(g.h, 'sm')}</span><span class="sc">${g.hs} - ${g.as}</span><span class="o">${logo(g.a, 'sm')} ${esc(tn(g.a))}</span></div>`).join('')}</div>` : `<div class="empty">${t(m.sport === 'bb' ? 'bb_no_h2h' : 'no_h2h')}</div>`;
+    return `<div class="grid2">${fl(m.h, m.f.h)}${fl(m.a, m.f.a)}</div><div class="card sec"><h2>${t('h2h')}</h2>${h2h}</div>`;
+  }
+
+  function prank(p) {
+    const a = (p.p || '').toUpperCase();
+    if (a === 'G' || a === 'GK') return 0;
+    if (a.startsWith('DM')) return 2;
+    if (/^(CD|CB|LB|RB|SW|D|LWB|RWB)/.test(a)) return 1;
+    if (a.startsWith('AM') || /^(LW|RW)$/.test(a)) return 4;
+    if (/^(CM|LM|RM|M)/.test(a)) return 3;
+    if (/^(F|CF|S|LF|RF)/.test(a)) return 5;
+    return 3;
+  }
+  const pside = p => { const a = (p.p || '').toUpperCase(); return /-L$/.test(a) || /^L/.test(a) ? 0 : /-R$/.test(a) || /^R/.test(a) ? 2 : 1; };
+  const pname = n => (n.length <= 13 ? n : n.split(' ').slice(-1)[0]);
+  function pitch(sq) {
+    const xi = sq.xi.slice().sort((a, b) => prank(a) - prank(b));
+    const nums = (sq.f || '').split('-').map(Number).filter(n => n > 0);
+    let rows = [];
+    if (xi.length === 11 && nums.reduce((s, n) => s + n, 0) === 10) {
+      let i = 0; [1].concat(nums).forEach(n => { rows.push(xi.slice(i, i + n)); i += n; });
+    } else {
+      const g = {}; xi.forEach(p => { const r = Math.min(prank(p), 5); (g[r] = g[r] || []).push(p); });
+      rows = Object.keys(g).sort().map(k => g[k]);
+    }
+    return `<div class="pitch">${rows.map(r => `<div class="prow">${r.sort((a, b) => pside(a) - pside(b)).map(p => `<div class="pl"><i>${esc(p.j)}</i><span>${esc(pname(p.n))}</span></div>`).join('')}</div>`).join('')}</div>`;
+  }
+  function tabSquad(m) {
+    const one = (id, sq) => {
+      if (!sq) return `<div class="card sec"><div class="sqhead">${logo(id)} ${esc(tn(id))}</div><div class="empty">${t('no_lineup')}</div></div>`;
+      return `<div class="card sec"><div class="sqhead">${logo(id)} ${esc(tn(id))}<small class="num">${esc(sq.f)}</small></div>
+        ${pitch(sq)}
+        <p class="note">${t('probable_note')}: ${esc(tn(sq.o))}, ${shortDate(sq.d)}</p>
+        <h2 style="margin-top:14px">${t('absent')}</h2>
+        ${sq.out.length ? `<ul class="outl">${sq.out.map(o => `<li class="${o.w}"><span><b>${esc(o.n)}</b> <small>— ${t('w_' + o.w)}</small></span></li>`).join('')}</ul>` : `<div class="mut">${t('no_absent')}</div>`}
+      </div>`;
+    };
+    return `<div class="pagehead" style="margin:14px 0 0"><h1 style="font-size:16px">${t('probable')}</h1></div>
+      <div class="grid2">${one(m.h, m.sq.h)}${one(m.a, m.sq.a)}</div><p class="note">${t('absent_note')}</p>`;
+  }
+  function tabPlayers(m) {
+    const one = (id, pl) => `<div class="card sec"><div class="sqhead">${logo(id)} ${esc(tn(id))}</div>${pl && pl.length ? `<div class="tblwrap"><table class="tbl pls"><thead><tr>
+      <th class="tn">${t('ph_player')}</th><th title="${t('c_played')}">${t('ph_ap')}</th><th>${t('ph_g')}</th><th>${t('ph_a')}</th><th>${t('ph_sh')}</th><th title="${t('ph_yc_l')}"><span class="card-y"></span></th><th title="${t('ph_rc_l')}"><span class="card-r"></span></th></tr></thead><tbody>
+      ${pl.map(p => `<tr><td class="tn"><span class="jr">${esc(p.j || '–')}</span><span>${esc(p.n)}</span><small class="mut">${esc(p.p)}</small></td><td>${p.ap}</td><td class="pts">${p.g}</td><td>${p.a}</td><td>${p.sh}</td><td>${p.yc}</td><td>${p.rc}</td></tr>`).join('')}
+      </tbody></table></div>` : `<div class="empty">${t('pl_none')}</div>`}</div>`;
+    return `<div class="pagehead" style="margin:14px 0 0"><h1 style="font-size:16px">${t('pl_title')}</h1><small>${esc(ln(m.lg))} · ${t('pl_note')}</small></div>
+      <div class="grid2">${one(m.h, m.pl.h)}${one(m.a, m.pl.a)}</div>`;
+  }
+
+  // ---------- puan durumu ----------
+  function tableHtml(lg, hl) {
+    const tb = D.tables[lg];
+    if (!tb) return `<div class="empty">${t('no_table')}</div>`;
+    const rows = tb[ttab] || tb.all;
+    return `<div class="seg" role="tablist">${['all', 'home', 'away'].map(k => `<button class="${ttab === k ? 'on' : ''}" data-ttab="${k}">${t('t_' + k)}</button>`).join('')}</div>
+      <div class="tblwrap"><table class="tbl"><thead><tr><th>#</th><th class="tn">${t('th_team')}</th><th>${t('th_p')}</th><th>${t('th_w')}</th><th>${t('th_d')}</th><th>${t('th_l')}</th><th>${t('th_g')}</th><th>${t('th_gd')}</th><th>${t('th_pts')}</th><th>${t('th_form')}</th></tr></thead><tbody>
+      ${rows.map((r, i) => `<tr class="${hl && hl.includes(r.t) ? 'hl' : ''}"><td>${i + 1}</td><td class="tn">${favBtn(r.t)}${logo(r.t)}<span>${esc(tn(r.t))}</span></td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gf}:${r.ga}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td class="pts">${r.pts}</td><td><span class="fr">${formDots(r.f)}</span></td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
   function viewTables() {
     if (flt.sp === 'bb') return `<div class="pagehead"><h1>${t('tables')}</h1></div>${spSeg()}
       <div class="card sec" style="margin-top:0"><h2>${badge('nba')} ${t('bb_table')}</h2>${bbTableHtml()}</div>`;
