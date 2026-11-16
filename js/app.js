@@ -350,30 +350,26 @@
     return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
   }
   function akCard(c, mk, own) {
-    const pk = kPicks(c, mk, own), ic = { main: '★', hi: '🔥', sys: '🎯' }[mk];
-    if (!pk.length) return `<div class="card akc none"><div class="akh"><b>${ic} ${t('m_t_' + mk)}</b></div><div class="akn">${t('ak_none')}</div></div>`;
+    const pk = kPicks(c, mk, own), joint = own === 'all', r = joint ? null : (D.agacc || {})[own];
+    const who = `${agAv(own)}<div class="akw"><b>${joint ? t('ac_joint') : t('ag_' + own)}</b><small>${t(joint ? 'ak_joint_s' : 'ag_' + own + '_r')}${r && r[0] ? ` · <span class="num">${pct(r[1] / r[0])}%</span>` : ''}</small></div>`;
+    if (!pk.length) return `<div class="card akc none"><div class="akh">${who}</div><div class="akn">${t('ak_none')}</div></div>`;
     const at = `data-cdate="${c.date}" data-ck="${mk}" data-own="${own}"`, tot = prodO(pk), sy = mk === 'sys' ? sysInfo({ k: sysK(c, own), picks: pk }) : null;
     const st = sy ? sy.st : cpnState(pk).st;
     const foot = sy
       ? `<div><small>${sy.k}/${sy.N} · ${sy.cols} ${t('sys_cols')}</small><b class="num">${money(MIN_STAKE)}</b></div><div><small>${t(sy.ok + sy.no ? 'sys_wcols' : 'max_win')}</small><b class="num win">${sy.ok + sy.no ? sy.wcols + '/' + sy.cols + ' · ' + money(Math.min(sy.win, MAX_WIN)) : money(Math.min(sy.max, MAX_WIN))}</b></div>`
       : `<div><small>${t('total_odds')}</small><b class="num od">${tot.toFixed(2)}</b></div><div><small>${fmt(t('tipc_min'), { s: MIN_STAKE })}</small><b class="num win">${money(Math.min(MIN_STAKE * tot, MAX_WIN))}</b></div>`;
-    return `<div class="card akc ${st}"><div class="akh"><b>${ic} ${t('m_t_' + mk)}${sy ? ` ${sy.k}/${sy.N}` : ''}</b><span class="st ${st}">${t(st)}</span>${shareBtn('share-molla', at)}</div>
-      ${pk.map(x => akRow(x, own === 'all')).join('')}<div class="akf">${foot}</div>${!sy && pk.some(pkLive) ? `<button class="btn akb" data-act="tipadd" ${at}>${t('tipc_add')}</button>` : ''}</div>`;
-  }
-  function akSection(c, own) {
-    const r = own === 'all' ? null : (D.agacc || {})[own];
-    return `<section class="aks"><div class="aksh">${agAv(own)}<div><b>${own === 'all' ? t('ac_joint') : t('ag_' + own)}</b><small>${t(own === 'all' ? 'ak_joint_s' : 'ag_' + own + '_r')}</small></div>
-      ${r && r[0] ? `<span class="akk num" title="${esc(t('an_karne'))}"><b>${pct(r[1] / r[0])}%</b> ${r[1]}/${r[0]}</span>` : ''}</div>
-      <div class="akg">${['main', 'hi', 'sys'].map(k => akCard(c, k, own)).join('')}</div></section>`;
+    return `<div class="card akc ${st}${joint ? ' joint' : ''}"><div class="akh">${who}<span class="st ${st}">${t(st)}</span>${shareBtn('share-molla', at)}</div>
+      ${pk.map(x => akRow(x, joint)).join('')}<div class="akf">${foot}</div>${!sy && pk.some(pkLive) ? `<button class="btn akb" data-act="tipadd" ${at}>${t('tipc_add')}</button>` : ''}</div>`;
   }
   function viewMolla() {
     const per = MOLLA.coupons.filter(x => x.ac), c = per.find(x => x.date === flt.mp) || per[0] || MOLLA.coupons[0];
     if (!c) return `<div class="pagehead"><h1>${t('tipc_title')}</h1></div><div class="card empty">${t('m_none')}</div>`;
-    const owners = ['all'].concat(AGENTS.map(x => x[0])), own = owners.includes(flt.ma) ? flt.ma : null;
+    const mk = ['main', 'hi', 'sys'].includes(flt.mk) ? flt.mk : 'main', owners = ['all'].concat(AGENTS.map(x => x[0]));
+    const TAB = [['main', '★', 'ak_h_main'], ['hi', '🔥', 'ak_h_hi'], ['sys', '🎯', 'ak_h_sys']];
     return `<div class="pagehead"><h1>${t('tipc_title')}</h1><small class="num">${cRange(c)}</small></div>
-      ${strip(`<button class="chip ${own ? '' : 'on'}" data-ma="*">${t('all')}</button>` + owners.map(o => `<button class="chip akchip ${own === o ? 'on' : ''}" data-ma="${o}">${agAv(o)}${o === 'all' ? t('ac_joint') : t('ag_' + o)}</button>`).join(''), 'owns')}
+      <div class="aktabs" role="tablist">${TAB.map(([k, ic, h]) => `<button role="tab" aria-selected="${mk === k}" class="${mk === k ? 'on' : ''}" data-mk="${k}"><i>${ic}</i><b>${t(h)}</b></button>`).join('')}</div>
       ${per.length > 1 ? `<div class="chips akper">${per.map(x => `<button class="chip ${x === c ? 'on' : ''}" data-mp="${x.date}">${cRange(x)}</button>`).join('')}</div>` : ''}
-      ${(own ? [own] : owners).map(o => akSection(c, o)).join('')}`;
+      <div class="akg">${owners.map(o => akCard(c, mk, o)).join('')}</div>`;
   }
 
   // ---------- favori karti, bildirimler ----------
@@ -535,7 +531,7 @@
     const top = Object.keys(n).sort((x, y) => n[y] - n[x])[0], x = m.agx;
     const rd = v => (v == null ? '–' : v === 0 ? t('agb_b2b') : fmt(t('agb_rest_n'), { n: v }));
     return `<div class="card sec"><h2>🤖 ${t('ag_title')} <small class="mut">${t('ag_here')}</small></h2>
-      <div class="aimgrid">${rows.map(([a, ic]) => `<div class="aim"><div class="ain">${ic} ${agName(a, bb)}</div>${ob(m, m.ag[a][0], mkLabel(m.ag[a][0], m))}<small class="mut">${a === 'vr' ? t('ag_ev') : t('confidence')} ${agVal(a, m.ag[a][1])}</small></div>`).join('')}</div>
+      <div class="aimgrid">${rows.map(([a, ic]) => `<div class="aim"><div class="ain">${agAv(a, bb, ic)} ${agName(a, bb)}</div>${ob(m, m.ag[a][0], mkLabel(m.ag[a][0], m))}<small class="mut">${a === 'vr' ? t('ag_ev') : t('confidence')} ${agVal(a, m.ag[a][1])}</small></div>`).join('')}</div>
       ${bb && m.tip && m.tip.ag ? `<p class="note" style="margin:10px 0 0">🤝 ${t('ag_cons')}: <b style="color:var(--tx)">${esc(mkLabel(m.tip.k, m))}</b> · ${fmt(t('ag_votes'), { v: m.tip.v })} · ${t('confidence')} ${pct(m.tip.p)}%</p>`
         : n[top] >= 2 ? `<p class="note" style="margin:10px 0 0">🤝 ${t('ag_cons')}: <b style="color:var(--tx)">${esc(mkLabel(top, m))}</b> · ${fmt(t('ag_votes'), { v: n[top] })}</p>` : ''}
       ${bb && x ? `<ul class="cmt" style="margin-top:10px"><li>🛌 ${t('agb_rest')}: ${esc(ts(m.h))} ${rd(x.rest[0])} · ${esc(ts(m.a))} ${rd(x.rest[1])}</li><li>🩺 ${t('agb_out')}: ${esc(ts(m.h))} ${x.out[0]} (−${x.pen[0]}) · ${esc(ts(m.a))} ${x.out[1]} (−${x.pen[1]})</li></ul>
@@ -821,30 +817,36 @@
   }
   function agScoreStrip(bb) {
     const A = (bb ? D.agaccbb : D.agacc) || {};
+    if (!agList(bb).some(([a]) => (A[a] || [0])[0])) return '';      // henuz sonuclanan mac yoksa gosterilmez
     return `<div class="agks">${agList(bb).map(([a, ic]) => { const r = A[a] || [0, 0];
       return `<div class="agk1">${agAv(a, bb, ic)}<div><b>${esc(bb ? t('agb_' + a + '_s') : t('ag_' + a))}</b><small>${esc(bb ? '' : t('ag_' + a + '_r'))}</small></div><span class="num">${r[0] ? `<b>${pct(r[1] / r[0])}%</b><small>${r[1]}/${r[0]}</small>` : '<b>–</b><small>0</small>'}</span></div>`; }).join('')}</div>`;
   }
   function anCard(m) {
     const bb = m.sport === 'bb', p = m.p, c = agCons(m);
+    const stat = (l, v) => `<div class="ans"><small>${l}</small><b class="num">${v}</b></div>`;
+    const stats = bb
+      ? stat(t('bb_exp_total'), p.total) + stat(t('bb_margin'), p.margin != null ? (p.margin >= 0 ? '+' : '') + p.margin.toFixed(1) : '–') + stat(t('over') + ' ' + m.line, p.po != null ? pct(p.po) + '%' : '–')
+      : stat('xG', p.lh.toFixed(2) + ' – ' + p.la.toFixed(2)) + stat(t('over') + ' 2.5', pct(p.o25) + '%') + stat(t('btts'), pct(p.btts) + '%');
     return `<a class="card anc" href="#/mac/${m.id}">
-      <div class="anh"><span>${badge(bb ? 'nba' : m.lg)} ${esc(bb ? 'NBA' : ln(m.lg))}</span><span class="num">${shortDate(m.d)} ${timeOf(m.d)}</span></div>
-      <div class="ant"><div class="tm">${logo(m.h)}<span>${esc(ts(m.h))}</span></div><div class="sc"><b class="num">${p.score[0]} - ${p.score[1]}</b>${!bb && p.lh != null ? `<small class="num" title="${esc(t('xg_tip'))}">xG ${p.lh.toFixed(2)} – ${p.la.toFixed(2)}</small>` : ''}</div><div class="tm r"><span>${esc(ts(m.a))}</span>${logo(m.a)}</div></div>
-      ${pbar(p)}
+      <div class="anh"><span>${badge(bb ? 'nba' : m.lg)} ${esc(bb ? 'NBA' : ln(m.lg))}</span><span class="num">${timeOf(m.d)}</span></div>
+      <div class="ant"><div class="tm">${logo(m.h)}<span>${esc(ts(m.h))}</span></div><div class="sc"><small>${t('pred_score')}</small><b class="num">${p.score[0]} - ${p.score[1]}</b></div><div class="tm r"><span>${esc(ts(m.a))}</span>${logo(m.a)}</div></div>
+      <div>${pbar(p)}<div class="anl3"><span>1</span>${bb ? '' : '<span>X</span>'}<span>2</span></div></div>
+      <div class="anst">${stats}</div>
       ${agTiles(m)}
       ${c && c.n >= 2 ? `<div class="anf"><span class="pill">${t('ag_cons')}</span><b>${esc(mkLabel(c.k, m))}</b><span class="num od">${m.o[c.k].toFixed(2)}</span><span class="num vt">${c.n}/5</span></div>` : ''}
     </a>`;
   }
   function viewAnalysis() {
-    const bb = flt.sp === 'bb', up = bb ? BB.matches.filter(future) : upcoming(), inLg = bb ? up : up.filter(lgOk);
-    const sort = flt.asort === 'cons' ? 'cons' : 'time', cn = m => { const c = agCons(m); return c ? c.n : 0; };
-    const list = inLg.slice().sort(sort === 'cons' ? (a, b) => cn(b) - cn(a) || byDate(a, b) : byDate);
-    const html = `<div class="pagehead"><h1>${t('analysis')}</h1></div>
-      <div class="anbar">${spSeg()}<div class="seg" role="tablist">${[['time', t('an_s_time')], ['cons', t('an_s_cons')]].map(([k, l]) => `<button class="${sort === k ? 'on' : ''}" data-asort="${k}">${l}</button>`).join('')}</div></div>
+    const bb = flt.sp === 'bb', up = bb ? BB.matches.filter(future) : upcoming();
+    const list = (bb ? up : up.filter(lgOk)).slice().sort(byDate), shown = list.slice(0, flt.alim), more = list.length - shown.length;
+    let html = `<div class="pagehead"><h1>${t('analysis')}</h1></div>${spSeg()}
       ${bb ? '' : lgChips(new Set(up.map(m => m.lg)), true)}${agScoreStrip(bb)}`;
     if (!list.length) return html + `<div class="card empty">${t(bb ? 'bb_none' : 'nomatch')}</div>`;
-    const more = list.length - flt.alim;
-    return html + '<div class="ancs">' + list.slice(0, flt.alim).map(anCard).join('') + '</div>'
-      + (more > 0 ? `<button class="btn ghost more" data-act="amore">${fmt(t('show_more'), { n: more })}</button>` : '');
+    [...new Set(shown.map(m => dayKey(m.d)))].forEach(dk => {
+      const ms = shown.filter(m => dayKey(m.d) === dk);
+      html += `<h2 class="dayhead">${dayLabel(dk)} <small>${ms.length} ${t('selections')}</small></h2><div class="ancs">${ms.map(anCard).join('')}</div>`;
+    });
+    return html + (more > 0 ? `<button class="btn ghost more" data-act="amore">${fmt(t('show_more'), { n: more })}</button>` : '');
   }
 
   // ---------- mac detay ----------

@@ -761,3 +761,32 @@ a.akr:hover{background:var(--s2)}
   .agks{display:flex;overflow-x:auto;scrollbar-width:none}
   .agk1{flex:none;min-width:150px}
 }
+
+/* ---------- v14: Analiz Kuponlari uc ana baslik; Analiz sayfasi gun gun ---------- */
+.aktabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.aktabs button{display:flex;align-items:center;justify-content:center;gap:8px;padding:13px 8px;border-radius:12px;background:var(--s1);border:1px solid var(--line);color:var(--mut);min-width:0}
+.aktabs button i{font-style:normal;font-size:16px}
+.aktabs button b{font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aktabs button.on{background:#0f2a22;border-color:var(--pri);color:var(--tx)}
+.aktabs button:hover{border-color:var(--pri)}
+.akg{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.akh .av{width:32px;height:32px;font-size:14px}
+.akw{display:grid;min-width:0;margin-right:auto}
+.akw b{font-size:14px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.akw small{color:var(--mut);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.akw small .num{color:var(--pri);font-weight:800}
+.akc.joint{border-color:#6b5300}
+.akc.joint .akh{background:linear-gradient(120deg,#3a2f08,var(--s2))}
+.akc.joint.won{border-color:var(--pri)}
+.ant .sc small{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em}
+.anl3{display:flex;justify-content:space-between;color:var(--mut);font-size:10px;font-weight:700;padding:3px 2px 0}
+.anst{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.ans{display:grid;gap:1px;padding:7px 8px;border-radius:10px;background:var(--s2);text-align:center;min-width:0}
+.ans small{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ans b{font-size:13.5px;white-space:nowrap}
+.ancs{margin-bottom:6px}
+@media (max-width:860px){
+  .aktabs button{flex-direction:column;gap:3px;padding:10px 4px}
+  .aktabs button b{font-size:12px}
+  .akg{grid-template-columns:1fr}
+}
