@@ -633,3 +633,19 @@ button.tipx{width:100%;text-align:left;cursor:pointer}
 .aim .ain{font-weight:700;font-size:12px}
 .aim small{font-size:11px;line-height:1.35}
 .aihint{margin-top:4px;font-size:11px;font-weight:700;color:var(--gold)}
+
+/* ---------- v10: analiz ajanlari ---------- */
+.agv{display:flex;align-items:center;gap:3px;margin-top:4px;flex-wrap:wrap}
+.agv i{font-style:normal;font-size:10px;line-height:1;width:20px;height:20px;display:grid;place-items:center;border-radius:50%;border:1.5px solid var(--line);background:var(--s2)}
+.agv i.y{border-color:var(--pri);background:#0d3b2c}
+.agv i.n{border-color:var(--red);opacity:.6}
+.agv i.na{opacity:.3;filter:grayscale(1)}
+.agv b{font-size:10px;color:var(--mut);font-weight:700;margin-left:3px}
+.agt th{font-size:14px}
+.agt td{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.agt td.y{color:var(--pri)} .agt td.n{color:var(--red)} .agt td.na{color:var(--mut);font-weight:500}
+.agt .agn{display:grid;gap:1px;min-width:0}
+.agt .agn b{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
+.agt .agn small{font-size:11px;font-weight:500}
+.agleg{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:10px;font-size:11px;color:var(--mut)}
+.aim .ob{width:100%}

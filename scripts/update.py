@@ -874,6 +874,130 @@ def tip_of(m):
     return max(c)
 
 
+# ---- Analiz ajanlari (MollaMyrat kuponlarini bes bagimsiz ajan birlikte kurar) ----
+# Her ajan ayni maca kendi verisiyle bakar ve her secenek icin kendi olasiligini uretir:
+#   st  Istatistik : sitenin Poisson/xG modeli (sezon gucu + piyasa harmani)
+#   mk  Piyasa     : bahis sitelerinin oranlarindan paydan arindirilmis olasilik (site orani yoksa cekimser)
+#   fm  Form       : yalnizca son 6 macin attigi/yedigi gol ortalamasi
+#   sh  Saha       : ev sahibinin ic saha, konugun deplasman sezon karnesi
+#   vr  Deger/Risk : diger ajanlarin ortak olasiligini oranla karsilastirir (beklenen getiri) + risk suzgeci
+AGENTS = ["st", "mk", "fm", "sh", "vr"]
+AG_KEYS = ["1", "X", "2", "1X", "12", "X2", "O1.5", "U1.5", "O2.5", "U2.5", "O3.5", "U3.5", "KGV", "KGY"]
+# kupon turleri: oran araligi, olasilik ajanlarinin onay esigi, deger ajaninin en dusuk beklenen getirisi
+AG_TYPES = {
+    "main": {"lo": 1.15, "hi": 1.62, "need": lambda o: 0.62, "ev": -0.08},
+    "hi": {"lo": 1.80, "hi": 4.50, "need": lambda o: max(0.30, 0.90 / o), "ev": -0.02},
+    "sys": {"lo": 1.45, "hi": 2.40, "need": lambda o: 0.50, "ev": -0.05},
+}
+
+
+def _pvec(p):
+    return {"1": p["p1"], "X": p["px"], "2": p["p2"], "1X": p["p1"] + p["px"], "12": p["p1"] + p["p2"],
+            "X2": p["px"] + p["p2"], "O1.5": p["o15"], "U1.5": 1 - p["o15"], "O2.5": p["o25"], "U2.5": 1 - p["o25"],
+            "O3.5": p["o35"], "U3.5": 1 - p["o35"], "KGV": p["btts"], "KGY": 1 - p["btts"]}
+
+
+def _clampl(v, lo=0.2, hi=3.6):
+    return min(max(v, lo), hi)
+
+
+def agent_probs(m):
+    """Doner: {ajan: {secenek: olasilik}}; verisi yetmeyen ajan sozlukte yer almaz (cekimser)."""
+    out = {"st": _pvec(m["p"])}
+    o, ss = m["o"], m.get("ss") or {}
+    # Piyasa: yalnizca gercek site orani varsa
+    if m.get("src") and m["src"] != "model" and all(o.get(k) for k in ("1", "X", "2")):
+        inv = [1 / o["1"], 1 / o["X"], 1 / o["2"]]
+        s = sum(inv)
+        q = [x / s for x in inv]
+        mh, ma = market_lambdas(*q)
+        v = _pvec(predict(mh, ma))                     # 1X2 oranlarinin ima ettigi gol dagilimi
+        v.update({"1": q[0], "X": q[1], "2": q[2], "1X": q[0] + q[1], "12": q[0] + q[2], "X2": q[1] + q[2]})
+        for grp, a, b in (("ou15", "O1.5", "U1.5"), ("ou25", "O2.5", "U2.5"), ("ou35", "O3.5", "U3.5"), ("kg", "KGV", "KGY")):
+            if ss.get(grp, "model") != "model" and o.get(a) and o.get(b):
+                ia, ib = 1 / o[a], 1 / o[b]
+                v[a], v[b] = ia / (ia + ib), ib / (ia + ib)
+        out["mk"] = v
+    # Form: son 6 mac
+    fh, fa = (m.get("f") or {}).get("h") or [], (m.get("f") or {}).get("a") or []
+    if len(fh) >= 3 and len(fa) >= 3:
+        av = lambda f, k: sum(x[k] for x in f) / len(f)
+        lh = _clampl(0.5 * (av(fh, "gf") + av(fa, "ga")) * 1.10)
+        la = _clampl(0.5 * (av(fa, "gf") + av(fh, "ga")) * 0.92)
+        out["fm"] = _pvec(predict(lh, la))
+    # Saha: ic saha / deplasman sezon karnesi (az macta lig ortalamasina cekilir)
+    sh, sa = (m.get("st") or {}).get("h") or {}, (m.get("st") or {}).get("a") or {}
+    if sh.get("p", 0) >= 3 and sa.get("p", 0) >= 3:
+        K = 2.0
+        r = lambda s, k, prior: (s[k] + K * prior) / (s["p"] + K)
+        lh = _clampl(0.5 * (r(sh, "gf", 1.45) + r(sa, "ga", 1.45)))
+        la = _clampl(0.5 * (r(sa, "gf", 1.15) + r(sh, "ga", 1.15)))
+        out["sh"] = _pvec(predict(lh, la))
+    return out
+
+
+def agent_eval(m, k, typ, pv=None):
+    """Bir secenegi bes ajana sorar. Doner: (onay sayisi, ortak olasilik, [[deger, onay] ya da None] x5)."""
+    pv = pv or agent_probs(m)
+    cfg, o = AG_TYPES[typ], m["o"][k]
+    need, row, ps = cfg["need"](o), [], []
+    for a in AGENTS[:4]:
+        if a in pv:
+            p = pv[a][k]
+            ps.append(p)
+            row.append([round(p, 3), int(p >= need)])
+        else:
+            row.append(None)
+    cons = sum(ps) / len(ps)
+    # Deger/Risk: gercek site orani yoksa ya da mac ongorulemezse onay vermez
+    ev = cons * o - 1
+    risky = m.get("src") == "model" or m["lg"] == "fifa.friendly" or len(ps) < 3
+    row.append([round(ev, 3), int(ev >= cfg["ev"] and not risky)])
+    return sum(x[1] for x in row if x), cons, row
+
+
+def agent_best(m):
+    """Mac detayi icin: her ajanin bu macta en cok guvendigi secim (oran 1.30+)."""
+    pv = agent_probs(m)
+    ks = [k for k in AG_KEYS if m["o"].get(k) and m["o"][k] >= 1.3]
+    out = {}
+    if not ks:
+        return out
+    for a in AGENTS[:4]:
+        if a in pv:
+            k = max(ks, key=lambda x: pv[a][x])
+            out[a] = [k, round(pv[a][k], 3)]
+    if len(pv) >= 3 and m.get("src") != "model":
+        cons = lambda k: sum(v[k] for v in pv.values()) / len(pv)
+        c = [k for k in ks if cons(k) >= 0.4]
+        if c:
+            k = max(c, key=lambda x: cons(x) * m["o"][x])
+            out["vr"] = [k, round(cons(k) * m["o"][k] - 1, 3)]
+    return out
+
+
+def agent_panel(pool, typ, avoid=()):
+    """Havuzdaki her mac icin ajanlarin en cok onayladigi secenegi bulur.
+    Doner: [(onay, ortak olasilik, secenek, oran, ajan satiri, mac)] - en guclu ortak karar basta."""
+    cfg, out = AG_TYPES[typ], []
+    for m in pool:
+        if m["id"] in avoid:
+            continue
+        pv, best = agent_probs(m), None
+        for k in AG_KEYS:
+            o = m["o"].get(k)
+            if not o or not cfg["lo"] <= o <= cfg["hi"] or not wins(k, *m["p"]["score"]):
+                continue
+            v, cons, row = agent_eval(m, k, typ, pv)
+            key = (v, cons * o if typ == "hi" else cons)
+            if best is None or key > best[0]:
+                best = (key, v, cons, k, o, row)
+        if best:
+            out.append(best[1:] + (m,))
+    out.sort(key=lambda x: (-x[0], -x[1]))
+    return out
+
+
 def molla(matches, done_by_id, src_team, use):
     state = cache_read(MOLLA) or {"coupons": {}}
     today = (NOW + timedelta(hours=5)).strftime("%Y-%m-%d")   # Askabat gunu
@@ -907,6 +1031,8 @@ def molla(matches, done_by_id, src_team, use):
             busted = True
             print("   MollaMyrat: guncel kuponda tutmayan mac var, yeni kupon yayinlaniyor", flush=True)
     due = not keys or busted or (day0 - datetime.strptime(keys[-1], "%Y-%m-%d")).days >= MOLLA_DAYS
+    if keys and "panel" not in state["coupons"][keys[-1]]:
+        due = True                                   # ajan heyetine gecis: guncel kupon bir kez yeniden kurulur
 
     def penalty(m):
         lg = LGMAP[m["lg"]]
@@ -976,24 +1102,48 @@ def molla(matches, done_by_id, src_team, use):
         c.sort(key=lambda x: x[2]["d"])
         return {"k": need, "picks": [rec(t, m) for _, t, m in c]}
 
+    def arec(x):
+        v, cons, k, o, row, m = x
+        return dict(base(m), k=k, o=o, p=round(cons, 3), sc=m["p"]["score"], v=v, ag=row)
+
+    by_date = lambda xs: sorted(xs, key=lambda x: x[5]["d"])
+
     if due:
         until = (day0 + timedelta(days=MOLLA_DAYS - 1)).strftime("%Y-%m-%d")
         pool = window(today)
-        cands = []
-        for m in pool:
-            opts = options(m)
-            if not opts:
-                continue
-            best = max(opts, key=lambda x: x[0] + 0.03 * min(x[2] - 1.18, 1))   # olasilik onde, oran ikinci
-            cands.append((best[0] + penalty(m), best, m))
-        cands.sort(key=lambda x: -x[0])
-        picks = []
-        for thr in (0.76, 0.71, 0.66):
-            picks = [c for c in cands if c[0] >= thr]
-            if len(picks) >= 3:
+        # Banko: en az 4 ajanin (yoksa 3) onayladigi dusuk oranli secimler
+        pan = agent_panel(pool, "main")
+        picks = [x for x in pan if x[0] >= 4][:6]
+        if len(picks) < 3:
+            picks = [x for x in pan if x[0] >= 3][:6]
+        if len(picks) < 3:
+            picks = pan[:3]
+        used = {x[5]["id"] for x in picks}
+        # Surpriz: ajanlarin "orani degerinin altinda" buldugu yuksek oranli secimler; toplam oran en az MOLLA_HI
+        pan_hi, hi = agent_panel(pool, "hi", used), None
+        for minv in (3, 2, 0):
+            got, tot = [], 1.0
+            for x in [y for y in pan_hi if y[0] >= minv][:7]:
+                got.append(x)
+                tot *= x[3]
+                if tot >= MOLLA_HI:
+                    break
+            if tot >= MOLLA_HI:
+                hi = got
                 break
-        picks = picks[:8] or cands[:3]
-        picks.sort(key=lambda x: x[2]["d"])
+        used |= {x[5]["id"] for x in hi or []}
+        # Sistem: orta oranli, en cok onay alan 5 mac (3'lu kolonlar)
+        need, n = MOLLA_SYS
+        pan_sys = agent_panel(pool, "sys", used)
+        sy = [x for x in pan_sys if x[0] >= 3][:n]
+        if len(sy) < n:
+            sy = pan_sys[:n]
+        # Ajan raporlari: her ajanin havuzda tek basina en cok guvendigi maclar
+        best = [(m, agent_best(m)) for m in pool]
+        rep_ = {}
+        for a_ in AGENTS:
+            rows = sorted(((b[a_][1], b[a_][0], m) for m, b in best if a_ in b), key=lambda x: -x[0])[:4]
+            rep_[a_] = [dict(base(m), k=k, o=m["o"][k], p=v) for v, k, m in rows]
 
         def sprob(m):
             sc = m["p"]["score"]
@@ -1001,11 +1151,18 @@ def molla(matches, done_by_id, src_team, use):
 
         best_sc = sorted(pool, key=lambda m: -(sprob(m) + penalty(m) / 3))[:5]
         if picks:
-            state["coupons"][today] = {
-                "v": 2, "until": until,
-                "picks": [rec(t, m) for _, t, m in picks],
-                "scores": [dict(base(m), sc=m["p"]["score"], sp=round(sprob(m), 3)) for m in
-                           sorted(best_sc, key=lambda m: m["d"])]}
+            cpn = {"v": 2, "until": until,
+                   "picks": [arec(x) for x in by_date(picks)],
+                   "scores": [dict(base(m), sc=m["p"]["score"], sp=round(sprob(m), 3)) for m in
+                              sorted(best_sc, key=lambda m: m["d"])],
+                   "panel": {"n": len(pool), "rep": rep_}}
+            if hi:
+                cpn["hi"] = {"picks": [arec(x) for x in by_date(hi)]}
+            if len(sy) >= need + 1:
+                cpn["sys"] = {"k": need, "picks": [arec(x) for x in by_date(sy)]}
+            state["coupons"][today] = cpn
+            print(f"   MollaMyrat ajan heyeti: {len(pool)} mac tarandi -> banko {len(picks)}, "
+                  f"surpriz {len(hi or [])}, sistem {len(sy) if len(sy) >= need + 1 else 0}", flush=True)
     # 2b) guncel kuponun yaninda yuksek oranli ve sistem kuponu (bir kez uretilir, sonra degismez)
     keys = sorted(state["coupons"])
     if keys:
@@ -1028,7 +1185,8 @@ def molla(matches, done_by_id, src_team, use):
     show = keep
     out = [dict(v, date=k) for k, v in sorted(state["coupons"].items(), reverse=True) if k >= show]
     for c in out:
-        for x in c["picks"] + c.get("scores", []) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", []):
+        reps = [x for rows in ((c.get("panel") or {}).get("rep") or {}).values() for x in rows]
+        for x in c["picks"] + c.get("scores", []) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", []) + reps:
             use(x["h"])
             use(x["a"])
     return {"today": today, "coupons": out}
@@ -1457,6 +1615,7 @@ def main():
                "pl": {"h": rosters.get((lid, hid), []), "a": rosters.get((lid, aid), [])}}
         if m.get("tr"):
             rec["tr"] = m["tr"]
+        rec["ag"] = agent_best(rec)
         matches.append(rec)
 
     cutoff = NOW - timedelta(days=RESULT_DAYS)

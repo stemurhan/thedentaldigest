@@ -307,7 +307,7 @@
       : `<span class="to num">${pk.o.toFixed(2)}</span>`;
     const sub = score ? `${shortDate(pk.d)} ${timeOf(pk.d)} · ${lg}` : `${shortDate(pk.d)} ${timeOf(pk.d)} · ${esc(mkLabel(pk.k))} · ${t('m_pred')} ${pk.sc[0]}-${pk.sc[1]}`;
     const res = pkRes(pk);
-    return `<${tag} class="tipc-r"${href}><span class="tt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small>${sub}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}</small></span>${right}${pkIcon(pk, score)}</${tag}>`;
+    return `<${tag} class="tipc-r"${href}><span class="tt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small>${sub}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}</small>${score ? '' : agChips(pk)}</span>${right}${pkIcon(pk, score)}</${tag}>`;
   }
   function tipCoupon() {
     const c = MOLLA.coupons[0];
@@ -492,6 +492,46 @@
     if (matchMedia('(max-width:860px)').matches) setTimeout(() => document.body.classList.add('slipopen'), 300);
   }
 
+  // ---------- MollaMyrat: analiz ajanlari (veri betigi hesaplar; kuponlar ajanlarin ortak karariyla kurulur) ----------
+  const AGENTS = [['st', '📊'], ['mk', '💹'], ['fm', '📈'], ['sh', '🏟️'], ['vr', '⚖️']];
+  const agVal = (a, v) => (a === 'vr' ? (v >= 0 ? '+' : '') + Math.round(v * 100) + '%' : pct(v) + '%');
+  function agChips(pk) {
+    if (!pk.ag) return '';
+    return `<span class="agv">${AGENTS.map(([a, ic], i) => { const x = pk.ag[i];
+      return `<i class="${!x ? 'na' : x[1] ? 'y' : 'n'}" title="${esc(t('ag_' + a))}: ${x ? agVal(a, x[0]) : t('ag_na')}">${ic}</i>`; }).join('')}<b>${fmt(t('ag_votes'), { v: pk.v })}</b></span>`;
+  }
+  function agentSection(c, mk) {
+    const picks = kPicks(c, mk), P = c.panel || {}, rp = P.rep || {};
+    let html = `<h2 class="dayhead">🤖 ${t('ag_title')} · ${t('m_t_' + mk)} <small class="mut">${fmt(t('ag_sub'), { n: P.n || 0 })}</small></h2>`;
+    if (picks.length && picks[0].ag) {
+      html += `<div class="card sec agm" style="margin-top:0"><h2>🤝 ${t('ag_cons')}</h2><p class="note" style="margin:0 0 10px">${t('ag_r_' + mk)}</p>
+        <div class="tblwrap"><table class="tbl agt"><thead><tr><th class="tn">${t('ag_match')}</th>${AGENTS.map(([a, ic]) => `<th title="${esc(t('ag_' + a))}">${ic}</th>`).join('')}<th>${t('ag_ok')}</th></tr></thead><tbody>
+        ${picks.map(pk => `<tr><td class="tn"><span class="agn"><b>${esc(pkName(pk, 'h'))} – ${esc(pkName(pk, 'a'))}</b><small class="mut">${esc(mkLabel(pk.k))} · ${pk.o.toFixed(2)}</small></span></td>${AGENTS.map(([a], i) => { const x = (pk.ag || [])[i];
+          return `<td class="${!x ? 'na' : x[1] ? 'y' : 'n'}">${x ? agVal(a, x[0]) : '–'}</td>`; }).join('')}<td class="pts">${pk.v}/5</td></tr>`).join('')}
+        </tbody></table></div>
+        <div class="agleg">${AGENTS.map(([a, ic]) => `<span>${ic} ${t('ag_' + a)}</span>`).join('')}</div>
+        <p class="note" style="margin:8px 0 0">${t('ag_cons_d')}</p></div>`;
+    }
+    html += `<h2 class="dayhead">${t('ag_reports')} <small class="mut">${t('ag_rep_d')}</small></h2>`;
+    AGENTS.forEach(([a, ic]) => {
+      const rows = rp[a] || [];
+      html += `<details class="aic"><summary>${ic} ${t('ag_' + a)}<small>${rows.length} ${t('selections')}</small></summary>
+        <div class="aib"><p class="note">${t('ag_' + a + '_d')}</p>${rows.length ? rows.map(r => { const tag = MATCH[r.id] ? 'a' : 'div';
+          return `<${tag} class="tipc-r"${MATCH[r.id] ? ` href="#/mac/${r.id}"` : ''}><span class="tt">${pair(r.h, r.a, pkName(r, 'h'), pkName(r, 'a'))}<small><b>${esc(mkLabel(r.k))}</b> · ${shortDate(r.d)} ${timeOf(r.d)} · ${a === 'vr' ? t('ag_ev') : t('confidence')} ${agVal(a, r.p)}</small></span><span class="to num">${r.o.toFixed(2)}</span></${tag}>`; }).join('')
+          : `<div class="empty">${t('ag_na')}</div>`}</div></details>`;
+    });
+    return html + `<p class="note" style="margin:2px 2px 12px">${t('ag_about')}</p>`;
+  }
+  function agentMatchBlock(m) {
+    const rows = AGENTS.filter(([a]) => m.ag[a] && m.o[m.ag[a][0]]);
+    if (!rows.length) return '';
+    const n = {}; rows.forEach(([a]) => { n[m.ag[a][0]] = (n[m.ag[a][0]] || 0) + 1; });
+    const top = Object.keys(n).sort((x, y) => n[y] - n[x])[0];
+    return `<div class="card sec"><h2>🤖 ${t('ag_title')} <small class="mut">${t('ag_here')}</small></h2>
+      <div class="aimgrid">${rows.map(([a, ic]) => `<div class="aim"><div class="ain">${ic} ${t('ag_' + a)}</div>${ob(m, m.ag[a][0], mkLabel(m.ag[a][0], m))}<small class="mut">${a === 'vr' ? t('ag_ev') : t('confidence')} ${agVal(a, m.ag[a][1])}</small></div>`).join('')}</div>
+      ${n[top] >= 2 ? `<p class="note" style="margin:10px 0 0">🤝 ${t('ag_cons')}: <b style="color:var(--tx)">${esc(mkLabel(top, m))}</b> · ${fmt(t('ag_votes'), { v: n[top] })}</p>` : ''}</div>`;
+  }
+
   // ---------- MollaMyrat: yapay zeka analizleri ----------
   // Ayni model verisini farkli yontemlerle yorumlayan dort analizci; tamamen tarayicida hesaplanir.
   const AI_DEFS = [
@@ -523,6 +563,7 @@
     return fmt(t('ai_r_frm'), { h: ts(m.h), f: formStr(m.f.h) || '–', a: ts(m.a), g: formStr(m.f.a) || '–' });
   }
   function mollaAI(mk) {
+    if (MOLLA.coupons[0] && MOLLA.coupons[0].panel) return agentSection(MOLLA.coupons[0], mk);
     const c = MOLLA.coupons[0], picks = c ? kPicks(c, mk) : [];
     if (picks.length < 3) return '';
     const res = picks.map(pk => {
@@ -552,6 +593,7 @@
   }
   // mac detay sayfasi: dort analizcinun bu mac icin onerisi (oran butonuna dokunup kupona eklenebilir)
   function aiMatchBlock(m) {
+    if (m.ag && Object.keys(m.ag).length) return agentMatchBlock(m);
     const prb = (m, k) => k === 'BO' ? (m.p.po != null ? m.p.po : 0) : k === 'BU' ? (m.p.po != null ? 1 - m.p.po : 0) : probOf(m, k);
     const ks = (isBB(m) ? ['1', '2', 'BU', 'BO']
       : ['1', 'X', '2', '1X', 'X2', '12', 'O1.5', 'U1.5', 'O2.5', 'U2.5', 'O3.5', 'U3.5', 'KGV', 'KGY'])
