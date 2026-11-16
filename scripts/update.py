@@ -647,6 +647,9 @@ def model_lambdas(st, avg_h, avg_a, hid, aid, form_h, form_a):
 def predict(lh, la):
     ph, pa = pois(lh), pois(la)
     mat = [[ph[i] * pa[j] for j in range(MAXG + 1)] for i in range(MAXG + 1)]
+    for i in range(2):
+        for j in range(2):
+            mat[i][j] *= _dc_tau(i, j, lh, la)
     tot = sum(map(sum, mat))
     mat = [[v / tot for v in r] for r in mat]
     p1 = sum(mat[i][j] for i in range(MAXG + 1) for j in range(MAXG + 1) if i > j)
@@ -998,7 +1001,33 @@ def tip_of(m):
 #   fm  Form       : yalnizca son 6 macin attigi/yedigi gol ortalamasi
 #   sh  Saha       : ev sahibinin ic saha, konugun deplasman sezon karnesi
 #   vr  Deger/Risk : diger ajanlarin ortak olasiligini oranla karsilastirir (beklenen getiri) + risk suzgeci
-AGENTS = ["st", "mk", "fm", "sh", "vr", "apf"]
+# Dixon-Coles duzeltmesi (dusuk skor kombinasyonlari icin)
+DC_RHO = -0.10
+def _dc_tau(i, j, lh, la, rho=DC_RHO):
+    if i == 0 and j == 0:
+        return 1 - lh * la * rho
+    if i == 1 and j == 0:
+        return 1 + la * rho
+    if i == 0 and j == 1:
+        return 1 + lh * rho
+    if i == 1 and j == 1:
+        return 1 - rho
+    return 1.0
+
+
+# Lig bazli ev sahibi / deplasman gol ortalamalari (Bayesian prior)
+LG_GOALS = {
+    "tur.1": (1.55, 1.08), "tur.2": (1.50, 1.05),
+    "eng.1": (1.42, 1.18), "eng.2": (1.45, 1.20),
+    "esp.1": (1.50, 1.20), "ger.1": (1.60, 1.30),
+    "ita.1": (1.42, 1.08), "fra.1": (1.48, 1.12),
+    "rus.1": (1.50, 1.05), "ned.1": (1.58, 1.25),
+    "por.1": (1.45, 1.10), "bel.1": (1.52, 1.18),
+}
+_LG_DEFAULT = (1.45, 1.15)
+
+
+AGENTS = ["st", "mk", "fm", "sh", "h2", "vr", "apf"]
 VOTE_AGENTS = [a for a in AGENTS if a != "vr"]
 apf_preds = {}
 AG_KEYS = ["1", "X", "2", "1X", "12", "X2", "O1.5", "U1.5", "O2.5", "U2.5", "O3.5", "U3.5", "KGV", "KGY"]
@@ -1062,6 +1091,23 @@ def agent_probs(m):
         s = sum(inv)
         q = [x / s for x in inv]
         mh, ma = market_lambdas(*q)
+        if ss.get("ou25", "model") != "model" and o.get("O2.5") and o.get("U2.5"):
+            inv_o, inv_u = 1 / o["O2.5"], 1 / o["U2.5"]
+            target_o25 = inv_o / (inv_o + inv_u)
+            t_lo, t_hi = 0.5, 7.0
+            for _ in range(18):
+                t_mid = (t_lo + t_hi) / 2
+                p_mid = 1 - sum(math.exp(-t_mid) * t_mid ** k / math.factorial(k) for k in range(3))
+                if p_mid < target_o25:
+                    t_lo = t_mid
+                else:
+                    t_hi = t_mid
+            target_total = (t_lo + t_hi) / 2
+            cur_total = mh + ma
+            if cur_total > 0.01:
+                scale = 0.60 * (target_total / cur_total) + 0.40
+                mh = _clampl(mh * scale)
+                ma = _clampl(ma * scale)
         v = _pvec(predict(mh, ma))                     # 1X2 oranlarinin ima ettigi gol dagilimi
         v.update({"1": q[0], "X": q[1], "2": q[2], "1X": q[0] + q[1], "12": q[0] + q[2], "X2": q[1] + q[2]})
         for grp, a, b in (("ou15", "O1.5", "U1.5"), ("ou25", "O2.5", "U2.5"), ("ou35", "O3.5", "U3.5"), ("kg", "KGV", "KGY")):
@@ -1072,18 +1118,38 @@ def agent_probs(m):
     # Form: son 6 mac
     fh, fa = (m.get("f") or {}).get("h") or [], (m.get("f") or {}).get("a") or []
     if len(fh) >= 3 and len(fa) >= 3:
-        av = lambda f, k: sum(x[k] for x in f) / len(f)
-        lh = _clampl(0.5 * (av(fh, "gf") + av(fa, "ga")) * 1.10)
-        la = _clampl(0.5 * (av(fa, "gf") + av(fh, "ga")) * 0.92)
+        def _wgt_avg(lst, key, decay=0.80):
+            if not lst:
+                return 0.0
+            ws = [decay ** i for i in range(len(lst))]
+            return sum(w * x[key] for w, x in zip(ws, lst)) / sum(ws)
+
+        lh = _clampl(0.5 * (_wgt_avg(fh, "gf") + _wgt_avg(fa, "ga")) * 1.10)
+        la = _clampl(0.5 * (_wgt_avg(fa, "gf") + _wgt_avg(fh, "ga")) * 0.92)
         out["fm"] = _pvec(predict(lh, la))
     # Saha: ic saha / deplasman sezon karnesi (az macta lig ortalamasina cekilir)
     sh, sa = (m.get("st") or {}).get("h") or {}, (m.get("st") or {}).get("a") or {}
     if sh.get("p", 0) >= 3 and sa.get("p", 0) >= 3:
         K = 2.0
+        h_prior, a_prior = LG_GOALS.get(m.get("lg", ""), _LG_DEFAULT)
         r = lambda s, k, prior: (s[k] + K * prior) / (s["p"] + K)
-        lh = _clampl(0.5 * (r(sh, "gf", 1.45) + r(sa, "ga", 1.45)))
-        la = _clampl(0.5 * (r(sa, "gf", 1.15) + r(sh, "ga", 1.15)))
+        lh = _clampl(0.5 * (r(sh, "gf", h_prior) + r(sa, "ga", h_prior)))
+        la = _clampl(0.5 * (r(sa, "gf", a_prior) + r(sh, "ga", a_prior)))
         out["sh"] = _pvec(predict(lh, la))
+    # H2H (kafa kafaya): son H2H maclari, ustel azalma agirlikli
+    h2h = m.get("h2h") or []
+    hid_m, aid_m = m.get("h"), m.get("a")
+    if len(h2h) >= 3 and hid_m and aid_m:
+        h_gf = [g["hs"] if g["h"] == hid_m else g["as"] for g in h2h]
+        h_ga = [g["as"] if g["h"] == hid_m else g["hs"] for g in h2h]
+        ws = [0.78 ** i for i in range(len(h2h))]
+        wsum = sum(ws)
+        avg_hgf = sum(w * v for w, v in zip(ws, h_gf)) / wsum
+        avg_hga = sum(w * v for w, v in zip(ws, h_ga)) / wsum
+        if avg_hgf + avg_hga >= 0.5:
+            lh_h2 = _clampl(avg_hgf * 1.05)
+            la_h2 = _clampl(avg_hga * 0.97)
+            out["h2"] = _pvec(predict(lh_h2, la_h2))
     return out
 
 
