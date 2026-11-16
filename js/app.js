@@ -556,7 +556,7 @@
     if (poi) rows.push({ ic: '📊', nm: t('ai_poi'), k: poi, why: m.p.lh != null
       ? fmt(t('ai_r_poi'), { x: m.p.lh.toFixed(2) + ' – ' + m.p.la.toFixed(2), b: pct(m.p.btts) })
       : fmt(t('ai_r_base'), { p: pct(prb(m, poi)) }) });
-    const val = ks.slice().sort((a, b) => prb(m, b) * m.o[b] - prb(m, a) * m.o[a])[0];
+    const val = ks.filter(k => prb(m, k) >= 0.35).sort((a, b) => prb(m, b) * m.o[b] - prb(m, a) * m.o[a])[0];
     if (val) { const ev = Math.round((prb(m, val) * m.o[val] - 1) * 100); rows.push({ ic: '💰', nm: t('ai_val'), k: val, why: fmt(t('ai_r_val'), { o: m.o[val].toFixed(2), e: (ev >= 0 ? '+' : '') + ev }) }); }
     if (m.f && m.f.h && m.f.a) {
       const df = formPts(m.f.h) - formPts(m.f.a);
@@ -720,10 +720,17 @@
     return html;
   }
   function row(m, wd) {
+    const ai = m.p && m.o ? (() => {
+      const ks = Object.keys(m.o).filter(k => probOf(m, k) >= 0.35);   // uzun vadci oranlar oneri olarak cikmasin
+      if (!ks.length) return null;
+      const v = ks.slice().sort((a, b) => probOf(m, b) * m.o[b] - probOf(m, a) * m.o[a])[0];
+      return { k: v, o: m.o[v] };
+    })() : null;
     return `<div class="mrow">
       <a class="minfo" href="#/mac/${m.id}">
         <div class="mtime num">${wd === true ? `<span class="md">${shortDate(m.d)}</span>` : ''}${timeOf(m.d)}</div>
         <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div></div>
+        ${ai ? `<div class="aihint">🤖 ${esc(mkLabel(ai.k, m))} · ${ai.o.toFixed(2)}</div>` : ''}
       </a>
       <div class="og c3 ms">${ob(m, '1')}${ob(m, 'X')}${ob(m, '2')}</div>
       <div class="og c2 ou">${ob(m, 'U2.5', t('under'))}${ob(m, 'O2.5', t('over'))}</div>
