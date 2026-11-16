@@ -365,7 +365,7 @@
     return `<div class="pagehead"><h1>★ ${t('tipc_title')}</h1></div>${seg}
       <h2 class="dayhead">${t('m_coupons')}</h2>
       ${w.cs.map(cpn).join('') || `<div class="card empty">${t('m_none')}</div>`}
-      ${mollaAI()}
+      ${mollaAI(mk)}
       <div class="card sec"><h2>${t('m_week')} <small class="mut num">${range(w)}</small></h2>${box(w)}</div>
       ${c0 && c0.scores && c0.scores.length ? `<div class="card tipc mc"><div class="tipc-h"><b>${t('m_scores')}</b><small>${cRange(c0)}</small></div>${c0.scores.map(x => molRow(x, true)).join('')}</div>` : ''}
       ${lw.cs.map(cpn).join('') ? `<div class="card sec"><h2>${t('m_last')} <small class="mut num">${range(lw)}</small></h2>${box(lw)}</div><details class="lastw"><summary>${t('m_last')} · ${t('m_coupons')}</summary>${lw.cs.map(cpn).join('')}</details>` : ''}
@@ -500,47 +500,53 @@
     ['val', '💰', 'ai_val', 'ai_val_d'],
     ['frm', '📈', 'ai_frm', 'ai_frm_d']
   ];
-  const aiProb = pk => { const m = MATCH[pk.id]; return m && m.p ? (probOf(m, pk.k) || pk.p || 0) : (pk.p || 0); };
   const formStr = (f, n) => { const L = RL(); return (f || []).slice(0, n || 5).map(x => L[x.r] ? L[x.r].slice(0, 1) : '').reverse().join(''); };
   const formPts = f => (f || []).slice(0, 5).reduce((s, x) => s + (x.r === 'W' ? 3 : x.r === 'D' ? 1 : 0), 0);
-  function frmScore(pk) {
-    const m = MATCH[pk.id];
-    if (!m || !m.f) return aiProb(pk) - .5;
-    const fav = pk.k === '1' || pk.k === '1X' ? 1 : pk.k === '2' || pk.k === 'X2' ? -1 : 0;
-    if (!fav) return aiProb(pk) - .5;
-    const gd = s => (s && s.p ? (s.gf - s.ga) / s.p : 0);
-    return fav * (formPts(m.f.h) - formPts(m.f.a)) + .5 * fav * (gd(m.st.h) - gd(m.st.a));
+  const AI_RANGE = { main: [1.18, 99], hi: [1.5, 4.5], sys: [1.5, 2.8] };
+  const AI_GOAL = ['O1.5', 'U1.5', 'O2.5', 'U2.5', 'O3.5', 'U3.5', 'KGV', 'KGY'];
+  const AI_FAV = { h: ['1', '1X', '12'], a: ['2', 'X2', '12'], d: ['X', '1X', 'X2'] };
+  function aiPick(kind, m, pk, mk) {
+    if (kind === 'mdl') return pk.k;
+    const [lo, hi] = AI_RANGE[mk] || AI_RANGE.main, P = k => probOf(m, k);
+    const ks = Object.keys(m.o || {}).filter(k => m.o[k] >= lo && m.o[k] <= hi && P(k) > 0);
+    if (kind === 'poi') return ks.filter(k => AI_GOAL.includes(k)).sort((a, b) => P(b) - P(a))[0] || null;
+    if (kind === 'val') return ks.filter(k => P(k) >= .3).sort((a, b) => P(b) * m.o[b] - P(a) * m.o[a])[0] || null;
+    if (!m.f || !m.f.h || !m.f.a) return null;
+    const df = formPts(m.f.h) - formPts(m.f.a), set = AI_FAV[df >= 2 ? 'h' : df <= -2 ? 'a' : 'd'];
+    return ks.filter(k => set.includes(k)).sort((a, b) => P(b) - P(a))[0] || null;
   }
-  function aiList(kind, picks) {
-    const arr = picks.slice();
-    if (kind === 'poi') arr.sort((a, b) => aiProb(b) - aiProb(a));
-    else if (kind === 'val') arr.sort((a, b) => aiProb(b) * b.o - aiProb(a) * a.o);
-    else if (kind === 'frm') arr.sort((a, b) => frmScore(b) - frmScore(a));
-    return arr.slice(0, 5);
-  }
-  function aiNote(kind, pk) {
-    const m = MATCH[pk.id], p = pk.p || 0;
+  function aiWhy(kind, m, pk, k) {
+    const p = probOf(m, k), o = m.o[k] || pk.o;
     if (kind === 'mdl') return fmt(t('ai_r_mdl'), { s: pk.sc[0] + '-' + pk.sc[1], p: pct(p) });
-    if (kind === 'poi' && m && m.p && m.p.lh != null) return fmt(t('ai_r_poi'), { x: m.p.lh.toFixed(2) + ' – ' + m.p.la.toFixed(2), b: pct(m.p.btts) });
-    if (kind === 'val') { const e = Math.round((p * pk.o - 1) * 100); return fmt(t('ai_r_val'), { o: pk.o.toFixed(2), e: (e >= 0 ? '+' : '') + e }); }
-    if (kind === 'frm' && m && m.f) return fmt(t('ai_r_frm'), { h: ts(m.h), f: formStr(m.f.h) || '–', a: ts(m.a), g: formStr(m.f.a) || '–' });
-    return fmt(t('ai_r_base'), { p: pct(aiProb(pk)) });
+    if (kind === 'poi') return m.p.lh != null ? fmt(t('ai_r_poi'), { x: m.p.lh.toFixed(2) + ' – ' + m.p.la.toFixed(2), b: pct(m.p.btts) }) : fmt(t('ai_r_base'), { p: pct(p) });
+    if (kind === 'val') { const e = Math.round((p * o - 1) * 100); return fmt(t('ai_r_val'), { o: o.toFixed(2), e: (e >= 0 ? '+' : '') + e }); }
+    return fmt(t('ai_r_frm'), { h: ts(m.h), f: formStr(m.f.h) || '–', a: ts(m.a), g: formStr(m.f.a) || '–' });
   }
-  function mollaAI() {
-    const c = MOLLA.coupons[0];
-    if (!c || !c.picks || c.picks.length < 3) return '';
-    const lists = {}; AI_DEFS.forEach(d => { lists[d[0]] = aiList(d[0], c.picks); });
-    const votes = {}; Object.values(lists).forEach(l => l.forEach(pk => { votes[pk.id] = (votes[pk.id] || 0) + 1; }));
-    const cons = Object.keys(votes).filter(id => votes[id] >= 3).map(id => c.picks.find(x => x.id === id)).filter(Boolean)
-      .sort((a, b) => votes[b.id] - votes[a.id] || b.p - a.p);
-    const aiRow = (pk, why) => `<div class="airow">${molRow(pk)}${why ? `<small class="aiwhy">${esc(why)}</small>` : ''}</div>`;
-    let html = `<h2 class="dayhead">🤖 ${t('ai_title')} <small class="mut">${t('ai_sub')}</small></h2>`;
-    html += `<div class="card tipc mc"><div class="tipc-h"><b>🤝 ${t('ai_cons')}</b><small>${t('ai_cons_s')}</small></div>
-      ${cons.length ? cons.map(pk => aiRow(pk, '🤝 ' + fmt(t('ai_votes'), { v: votes[pk.id] }))).join('') : `<div class="empty">${t('ai_none')}</div>`}</div>`;
+  function mollaAI(mk) {
+    const c = MOLLA.coupons[0], picks = c ? kPicks(c, mk) : [];
+    if (picks.length < 3) return '';
+    const res = picks.map(pk => {
+      const m = MATCH[pk.id], by = {};
+      AI_DEFS.forEach(d => { by[d[0]] = m && m.p ? aiPick(d[0], m, pk, mk) : (d[0] === 'mdl' ? pk.k : null); });
+      return { pk, m, by };
+    });
+    const aiRow = (r, k, why) => {
+      const o = r.m && r.m.o && r.m.o[k] ? r.m.o[k] : r.pk.o, pk = r.pk;
+      return `<a class="tipc-r" href="#/mac/${pk.id}"><span class="tt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(k, r.m))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${why ? ' · ' + esc(why) : ''}</small></span><span class="to num">${o.toFixed(2)}</span></a>`;
+    };
+    const cons = res.map(r => {
+      const n = {}; Object.values(r.by).forEach(k => { if (k) n[k] = (n[k] || 0) + 1; });
+      const top = Object.keys(n).sort((a, b) => n[b] - n[a])[0];
+      return top && n[top] >= 2 ? { r, k: top, n: n[top] } : null;
+    }).filter(Boolean).sort((a, b) => b.n - a.n);
+    const strong = cons.filter(x => x.n >= 3), shown = strong.length ? strong : cons.slice(0, 4);
+    let html = `<h2 class="dayhead">🤖 ${t('ai_title')} · ${t('m_t_' + mk)} <small class="mut">${t('ai_sub')}</small></h2>`;
+    html += `<div class="card tipc mc"><div class="tipc-h"><b>🤝 ${t('ai_cons')}</b><small>${t(strong.length ? 'ai_cons_s' : 'ai_cons_s2')}</small></div>
+      ${shown.length ? shown.map(x => aiRow(x.r, x.k, AI_DEFS.filter(d => x.r.by[d[0]] === x.k).map(d => d[1]).join('') + ' ' + fmt(t('ai_votes'), { v: x.n }))).join('') : `<div class="empty">${t('ai_none')}</div>`}</div>`;
     AI_DEFS.forEach(d => {
-      const [k, ic, nm, ds] = d, l = lists[k];
-      html += `<details class="aic" ${k === 'mdl' ? 'open' : ''}><summary>${ic} ${t(nm)}<small>${l.length} ${t('selections')}</small></summary>
-        <div class="aib"><p class="note">${t(ds)}</p>${l.map(pk => aiRow(pk, aiNote(k, pk))).join('')}</div></details>`;
+      const [kd, ic, nm, ds] = d, rows = res.filter(r => r.by[kd]);
+      html += `<details class="aic" open><summary>${ic} ${t(nm)}<small>${rows.length}/${res.length} ${t('ai_matches')}</small></summary>
+        <div class="aib"><p class="note">${t(ds)}</p>${res.map(r => r.by[kd] ? aiRow(r, r.by[kd], r.m && r.m.p ? aiWhy(kd, r.m, r.pk, r.by[kd]) : '') : `<div class="airow"><small class="aiwhy">${esc(pkName(r.pk, 'h'))} – ${esc(pkName(r.pk, 'a'))}: ${t('ai_nopick')}</small></div>`).join('')}</div></details>`;
     });
     return html + `<p class="note" style="margin:2px 2px 12px">${t('ai_about')}</p>`;
   }
