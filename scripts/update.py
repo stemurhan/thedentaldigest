@@ -1212,6 +1212,66 @@ BB_TS = {"avgPoints": "ppg", "avgPointsAgainst": "opp", "fieldGoalPct": "fg", "t
 BB_LEAD = {"pointsPerGame": "pts", "assistsPerGame": "ast", "reboundsPerGame": "reb"}
 
 
+# ---- Basketbol analiz ajanlari (NBA) ----------------------------------------
+# Her ajan macin sayi farkini ve toplam sayisini kendi verisinden tahmin eder; fark ve toplam
+# normal dagilimla (fark sd 12.5, toplam sd 18.5) mac sonucu / alt-ust olasiligina cevrilir.
+#   pw  Guc Siralamasi  : sezonun tum maclarindan atilan / yenen sayi gucu
+#   mk  Piyasa          : bahis sitesi oranlarindan paydan arindirilmis olasilik (site orani yoksa cekimser)
+#   fm  Form            : yalnizca son 6 mac
+#   rs  Saha ve Dinlenme: ic saha / deplasman karnesi + dinlenme gunu (art arda gun maci cezasi)
+#   in  Kadro           : sakatlik raporu; eksik oyuncu takimin sayi / asist / ribaund lideriyse etkisi buyur
+BB_AGENTS = ["pw", "mk", "fm", "rs", "in"]
+BB_NEED = 0.55                 # bir ajanin secenegi onaylamasi icin verdigi en dusuk olasilik
+BB_B2B, BB_RESTED = -2.2, 0.6  # art arda gun maci cezasi / 3+ gun dinlenme katkisi (sayi)
+
+
+def bb_inj_penalty(inj, leaders):
+    """Eksik oyuncularin takima maliyeti (sayi). Lider eksigi agir, digerleri hafif sayilir."""
+    lead = {}
+    for x in leaders or []:
+        lead[x["n"]] = max(lead.get(x["n"], 0), 3.2 if x.get("k") == "pts" else 2.0)
+    pen = 0.0
+    for x in inj or []:
+        st_ = (x.get("s") or "").lower()
+        w = 1.0 if "out" in st_ else 0.4 if ("day" in st_ or "doubt" in st_ or "question" in st_) else 0.0
+        pen += w * lead.get(x["n"], 0.5)
+    return min(pen, 7.5)
+
+
+def bb_agent_probs(est, line, mk):
+    """est: {ajan: (fark, toplam)} -> {ajan: {secenek: olasilik}}; mk: piyasa olasiliklari (ya da None)."""
+    out = {}
+    for a, (mg, tot) in est.items():
+        p1, po = phi(mg / 12.5), 1 - phi((line - tot) / 18.5)
+        out[a] = {"1": p1, "2": 1 - p1, "BO": po, "BU": 1 - po}
+    if mk:
+        out["mk"] = mk
+    return out
+
+
+def bb_consensus(pv, o, line, score):
+    """Ajanlarin en cok onayladigi secenek. Doner: (secenek, ortak olasilik, onay, ajan satiri)."""
+    best = None
+    for k in ("1", "2", "BO", "BU"):
+        if not o.get(k):
+            continue
+        row, ps = [], []
+        for a in BB_AGENTS:
+            p = (pv.get(a) or {}).get(k)
+            if p is None:
+                row.append(None)
+            else:
+                ps.append(p)
+                row.append([round(p, 3), int(p >= BB_NEED)])
+        if not ps:
+            continue
+        v, cons = sum(x[1] for x in row if x), sum(ps) / len(ps)
+        key = (bb_wins(k, score[0], score[1], line), o[k] >= 1.3, v, cons)
+        if best is None or key > best[0]:
+            best = (key, k, cons, v, row)
+    return best[1:]
+
+
 def bb_summary(eid):
     """Mac onizlemesi: takim liderleri, sakat/eksik oyuncular, takim istatistikleri."""
     path = os.path.join(CACHE, "bbs", eid + ".json")
@@ -1320,6 +1380,21 @@ def basketball():
         nes_bb = nesine_load()["bb"]
     except Exception:
         nes_bb = []
+    # dinlenme: takimin bu mactan onceki son maci (oynanmis ya da programda) kac gun once
+    sched = defaultdict(list)
+    for e in allev:
+        if not any(w in (e["status"] or "") for w in ("POSTPONED", "CANCEL")):
+            sched[e["h"]["id"]].append(e["dt"])
+            sched[e["a"]["id"]].append(e["dt"])
+
+    def rest_days(tid, dt):
+        prev = [x for x in sched[tid] if x < dt - timedelta(hours=2)]
+        # NBA sayimi: art arda gunlerde mac = 0 gun dinlenme
+        return None if not prev else max(0, round((dt - prev[-1]).total_seconds() / 86400) - 1)
+
+    def fatigue(r):
+        return 0.0 if r is None else BB_B2B if r == 0 else BB_RESTED if r >= 3 else 0.0
+
     matches = []
     for m in up:
         hid, aid = m["h"]["id"], m["a"]["id"]
@@ -1327,6 +1402,7 @@ def basketball():
         eh = avg + (rate(h["pf"], h["p"]) - avg) + (rate(a["pa"], a["p"]) - avg) + 1.6
         ea = avg + (rate(a["pf"], a["p"]) - avg) + (rate(h["pa"], h["p"]) - avg) - 1.6
         model = [round(eh, 1), round(ea, 1)]
+        est = {"pw": (eh - ea, eh + ea)}              # ajan tahminleri: (sayi farki, toplam sayi)
         alt = (odds.get(m["id"]) or {}).get("alt")
         if not alt and nes_bb:
             no = nes_find(nes_bb, m["dt"], [m["h"]["n"], m["h"]["s"]], [m["a"]["n"], m["a"]["s"]])
@@ -1365,22 +1441,64 @@ def basketball():
         sh, sa = round(eh), round(ea)
         if sh == sa:
             sh += 1 if p1 >= 0.5 else -1
-        # oneri: tahmini skorla celismeyen, olasiligi en yuksek pazar
-        c = [(p1, "1"), (1 - p1, "2"), (po, "BO"), (1 - po, "BU")]
-        c = [(p, k, o[k]) for p, k in c if o.get(k)]
-        c = [x for x in c if bb_wins(x[1], sh, sa, line)] or c
-        c = [x for x in c if x[2] >= 1.3] or c
-        tp = max(c)
-        h2h = [{"d": g["d"], "lg": "nba", "h": "b" + g["h"]["id"], "a": "b" + g["a"]["id"], "hs": g["hs"], "as": g["as"]}
-               for g in by_team[hid] if {g["h"]["id"], g["a"]["id"]} == {hid, aid}][-6:][::-1]
         sm = summ.get(m["id"]) or {}
         side = lambda tid, k, dflt: (sm.get(tid) or {}).get(k) or dflt
+        # --- ajan ekibi ---
+        fh, fa = form_of(hid), form_of(aid)
+        if len(fh) >= 3 and len(fa) >= 3:
+            av = lambda f, k: sum(x[k] for x in f) / len(f)
+            fe_h = (av(fh, "gf") + av(fa, "ga")) / 2 + 1.6
+            fe_a = (av(fa, "gf") + av(fh, "ga")) / 2 - 1.6
+            est["fm"] = (fe_h - fe_a, fe_h + fe_a)
+        hs_, as__ = st[hid]["home"], st[aid]["away"]
+        rest = [rest_days(hid, m["dt"]), rest_days(aid, m["dt"])]
+        if hs_["p"] >= 3 and as__["p"] >= 3:
+            re_h = (rate(hs_["pf"], hs_["p"]) + rate(as__["pa"], as__["p"])) / 2 + fatigue(rest[0])
+            re_a = (rate(as__["pf"], as__["p"]) + rate(hs_["pa"], hs_["p"])) / 2 + fatigue(rest[1])
+            est["rs"] = (re_h - re_a, re_h + re_a)
+        pen = [bb_inj_penalty(side(hid, "inj", []), side(hid, "pl", [])),
+               bb_inj_penalty(side(aid, "inj", []), side(aid, "pl", []))]
+        if sm:                                        # sakatlik raporu gelmis maclarda
+            pm, pt = est["pw"]
+            est["in"] = (pm - pen[0] + pen[1], pt - 0.6 * (pen[0] + pen[1]))
+        mkp = None
+        if alt:                                       # yalnizca gercek site orani varsa
+            mkp = {"1": q1, "2": 1 - q1}
+            if alt.get("line") and alt.get("O") and alt.get("U"):
+                io_, iu_ = 1 / alt["O"], 1 / alt["U"]
+                mkp["BO"], mkp["BU"] = io_ / (io_ + iu_), iu_ / (io_ + iu_)
+        pv = bb_agent_probs(est, line, mkp)
+        # yayinlanan tahmin ajanlarin ortalamasidir: olasilik, sayi farki, toplam ve skor ayni kaynaktan gelir
+        mean = lambda xs: sum(xs) / len(xs)
+        p1 = mean([v["1"] for v in pv.values()])
+        po = mean([v["BO"] for v in pv.values() if "BO" in v])
+        cm = mean([v[0] for v in est.values()] + ([eh - ea] if alt else []))
+        total = mean([v[1] for v in est.values()] + ([eh + ea] if alt else []))
+        if (cm >= 0) != (p1 >= 0.5):                  # fark ile olasilik ayni tarafi gostersin
+            cm = 0.5 if p1 >= 0.5 else -0.5
+        sh, sa = round((total + cm) / 2), round((total - cm) / 2)
+        if sh == sa or (sh > sa) != (p1 >= 0.5):
+            sh, sa = (max(sh, sa) + (sh == sa), min(sh, sa)) if p1 >= 0.5 else (min(sh, sa), max(sh, sa) + (sh == sa))
+        tk, tcons, tv, trow = bb_consensus(pv, o, line, (sh, sa))
+        tp = (tcons, tk, o[tk])
+        ok_ks = [k for k in ("1", "2", "BO", "BU") if o.get(k) and o[k] >= 1.3] or [k for k in ("1", "2", "BO", "BU") if o.get(k)]
+        ag = {}
+        for a_ in BB_AGENTS:
+            ks_ = [k for k in ok_ks if k in (pv.get(a_) or {})]
+            if ks_:
+                bk = max(ks_, key=lambda k: pv[a_][k])
+                ag[a_] = [bk, round(pv[a_][bk], 3)]
+        n_out = lambda tid: sum(1 for x in side(tid, "inj", []) if "out" in (x.get("s") or "").lower())
+        h2h = [{"d": g["d"], "lg": "nba", "h": "b" + g["h"]["id"], "a": "b" + g["a"]["id"], "hs": g["hs"], "as": g["as"]}
+               for g in by_team[hid] if {g["h"]["id"], g["a"]["id"]} == {hid, aid}][-6:][::-1]
         matches.append({"id": "b" + m["id"], "sport": "bb", "lg": "nba", "d": m["d"], "h": "b" + hid,
                         "a": "b" + aid, "v": m["v"], "src": src, "o": o, "line": line,
                         "p": {"p1": round(p1, 4), "p2": round(1 - p1, 4), "score": [sh, sa], "total": round(total, 1),
-                              "margin": round(eh - ea, 1), "po": round(po, 4), "model": model},
-                        "tip": {"k": tp[1], "p": round(tp[0], 4), "o": tp[2]},
-                        "f": {"h": form_of(hid), "a": form_of(aid)}, "h2h": h2h,
+                              "margin": round(cm, 1), "po": round(po, 4), "model": model},
+                        "tip": {"k": tp[1], "p": round(tp[0], 4), "o": tp[2], "v": tv, "ag": trow},
+                        "ag": ag, "agx": {"rest": rest, "out": [n_out(hid), n_out(aid)],
+                                          "pen": [round(pen[0], 1), round(pen[1], 1)]},
+                        "f": {"h": fh, "a": fa}, "h2h": h2h,
                         "st": {"h": split(st[hid]["home"]), "a": split(st[aid]["away"]),
                                "ha": split(st[hid]["all"]), "aa": split(st[aid]["all"])},
                         "pl": {"h": side(hid, "pl", []), "a": side(aid, "pl", [])},
@@ -1729,7 +1847,20 @@ def main():
         accbb["tip"] += int(bb_wins(pv["k"], e["hs"], e["as"], pv.get("ln", 0)))
         accbb["res"] += int((pv["p"][0] >= pv["p"][2]) == (e["hs"] > e["as"]))
 
-    data = {"updated": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    # ---- mac detayi (form, aralarindaki maclar, karne, kadro, oyuncular) lig dosyalarina ayrilir:
+    #      acilista inen data.js kuculur, detay yalnizca mac acilinca yuklenir ----
+    ddir = os.path.join(ROOT, "data", "detail")
+    detail = defaultdict(dict)
+    for m in matches:
+        detail[m["lg"]][m["id"]] = {k: m.pop(k) for k in ("f", "h2h", "st", "sq", "pl") if k in m}
+    os.makedirs(ddir, exist_ok=True)
+    for lid, rows in detail.items():
+        cache_write(os.path.join(ddir, lid + ".json"), rows)
+    for fn in os.listdir(ddir):
+        if fn.endswith(".json") and fn[:-5] not in detail:
+            os.remove(os.path.join(ddir, fn))
+
+    data = {"updated": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), "split": 1,
             "leagues": [{"id": l["id"], "n": l["n"], "g": l["g"], "cup": l["cup"], "nat": l["nat"], "tier": l["tier"], "tsdb": bool(l["tsdb"])}
                         for l in LEAGUES],
             "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb, "since": STATS_FROM}

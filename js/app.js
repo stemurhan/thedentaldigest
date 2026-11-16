@@ -77,7 +77,21 @@
 
   // ---------- veri yardimcilari ----------
   Object.assign(D.teams, BB.teams);
-  const MATCH = {}; D.matches.concat(BB.matches).forEach(m => { MATCH[m.id] = m; if (!m.pl) m.pl = { h: [], a: [] }; if (!m.sq) m.sq = { h: null, a: null }; if (!m.f) m.f = { h: [], a: [] }; if (!m.h2h) m.h2h = []; });
+  // mac detayi (form, karne, kadro, oyuncular) ayri lig dosyalarinda durur; mac acilinca yuklenir
+  const ST0 = () => ({ p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, cs: 0, btts: 0, o25: 0 });
+  const detFill = m => { if (!m.pl) m.pl = { h: [], a: [] }; if (!m.sq) m.sq = { h: null, a: null }; if (!m.f) m.f = { h: [], a: [] }; if (!m.h2h) m.h2h = []; if (!m.st) m.st = { h: ST0(), a: ST0() }; };
+  const MATCH = {}; D.matches.concat(BB.matches).forEach(m => { MATCH[m.id] = m; m._d = m.sport === 'bb' || !D.split || !!m.st; detFill(m); });
+  const DET = {};
+  function loadDet(m) {
+    if (DET[m.lg]) return;
+    DET[m.lg] = 1;
+    const done = d => {
+      D.matches.forEach(x => { if (x.lg === m.lg) { if (d && d[x.id]) Object.assign(x, d[x.id]); x._d = true; detFill(x); } });
+      if (!d) { DET[m.lg] = 0; toast(t('e_net')); }
+      if (/^#\/mac\//.test(location.hash)) { const y = scrollY; render(); scrollTo(0, y); }
+    };
+    fetch('data/detail/' + m.lg + '.json?u=' + encodeURIComponent(D.updated || '')).then(r => (r.ok ? r.json() : Promise.reject(r.status))).then(done).catch(() => done(null));
+  }
   const LG = {}; D.leagues.forEach(l => { LG[l.id] = l; });
   const RES = {}; D.results.concat(BB.results).forEach(r => { RES[r.id] = r; });
   const team = id => D.teams[id] || { n: '?', s: '?', l: '' };
@@ -494,11 +508,14 @@
 
   // ---------- MollaMyrat: analiz ajanlari (veri betigi hesaplar; kuponlar ajanlarin ortak karariyla kurulur) ----------
   const AGENTS = [['st', '📊'], ['mk', '💹'], ['fm', '📈'], ['sh', '🏟️'], ['vr', '⚖️']];
+  const BB_AGENTS = [['pw', '🏀'], ['mk', '💹'], ['fm', '📈'], ['rs', '🛌'], ['in', '🩺']];
+  const agList = bb => (bb ? BB_AGENTS : AGENTS);
+  const agName = (a, bb) => t((bb ? 'agb_' : 'ag_') + a);
   const agVal = (a, v) => (a === 'vr' ? (v >= 0 ? '+' : '') + Math.round(v * 100) + '%' : pct(v) + '%');
-  function agChips(pk) {
-    if (!pk.ag) return '';
-    return `<span class="agv">${AGENTS.map(([a, ic], i) => { const x = pk.ag[i];
-      return `<i class="${!x ? 'na' : x[1] ? 'y' : 'n'}" title="${esc(t('ag_' + a))}: ${x ? agVal(a, x[0]) : t('ag_na')}">${ic}</i>`; }).join('')}<b>${fmt(t('ag_votes'), { v: pk.v })}</b></span>`;
+  function agChips(pk, bb) {
+    if (!pk || !pk.ag) return '';
+    return `<span class="agv">${agList(bb).map(([a, ic], i) => { const x = pk.ag[i];
+      return `<i class="${!x ? 'na' : x[1] ? 'y' : 'n'}" title="${esc(agName(a, bb))}: ${x ? agVal(a, x[0]) : t('ag_na')}">${ic}</i>`; }).join('')}<b>${fmt(t('ag_votes'), { v: pk.v })}</b></span>`;
   }
   function agentSection(c, mk) {
     const picks = kPicks(c, mk), P = c.panel || {}, rp = P.rep || {};
@@ -523,13 +540,17 @@
     return html + `<p class="note" style="margin:2px 2px 12px">${t('ag_about')}</p>`;
   }
   function agentMatchBlock(m) {
-    const rows = AGENTS.filter(([a]) => m.ag[a] && m.o[m.ag[a][0]]);
+    const bb = m.sport === 'bb', rows = agList(bb).filter(([a]) => m.ag[a] && m.o[m.ag[a][0]]);
     if (!rows.length) return '';
     const n = {}; rows.forEach(([a]) => { n[m.ag[a][0]] = (n[m.ag[a][0]] || 0) + 1; });
-    const top = Object.keys(n).sort((x, y) => n[y] - n[x])[0];
+    const top = Object.keys(n).sort((x, y) => n[y] - n[x])[0], x = m.agx;
+    const rd = v => (v == null ? '–' : v === 0 ? t('agb_b2b') : fmt(t('agb_rest_n'), { n: v }));
     return `<div class="card sec"><h2>🤖 ${t('ag_title')} <small class="mut">${t('ag_here')}</small></h2>
-      <div class="aimgrid">${rows.map(([a, ic]) => `<div class="aim"><div class="ain">${ic} ${t('ag_' + a)}</div>${ob(m, m.ag[a][0], mkLabel(m.ag[a][0], m))}<small class="mut">${a === 'vr' ? t('ag_ev') : t('confidence')} ${agVal(a, m.ag[a][1])}</small></div>`).join('')}</div>
-      ${n[top] >= 2 ? `<p class="note" style="margin:10px 0 0">🤝 ${t('ag_cons')}: <b style="color:var(--tx)">${esc(mkLabel(top, m))}</b> · ${fmt(t('ag_votes'), { v: n[top] })}</p>` : ''}</div>`;
+      <div class="aimgrid">${rows.map(([a, ic]) => `<div class="aim"><div class="ain">${ic} ${agName(a, bb)}</div>${ob(m, m.ag[a][0], mkLabel(m.ag[a][0], m))}<small class="mut">${a === 'vr' ? t('ag_ev') : t('confidence')} ${agVal(a, m.ag[a][1])}</small></div>`).join('')}</div>
+      ${bb && m.tip && m.tip.ag ? `<p class="note" style="margin:10px 0 0">🤝 ${t('ag_cons')}: <b style="color:var(--tx)">${esc(mkLabel(m.tip.k, m))}</b> · ${fmt(t('ag_votes'), { v: m.tip.v })} · ${t('confidence')} ${pct(m.tip.p)}%</p>`
+        : n[top] >= 2 ? `<p class="note" style="margin:10px 0 0">🤝 ${t('ag_cons')}: <b style="color:var(--tx)">${esc(mkLabel(top, m))}</b> · ${fmt(t('ag_votes'), { v: n[top] })}</p>` : ''}
+      ${bb && x ? `<ul class="cmt" style="margin-top:10px"><li>🛌 ${t('agb_rest')}: ${esc(ts(m.h))} ${rd(x.rest[0])} · ${esc(ts(m.a))} ${rd(x.rest[1])}</li><li>🩺 ${t('agb_out')}: ${esc(ts(m.h))} ${x.out[0]} (−${x.pen[0]}) · ${esc(ts(m.a))} ${x.out[1]} (−${x.pen[1]})</li></ul>
+        <details class="aic" style="margin-top:10px"><summary>${t('agb_how')}</summary><div class="aib">${BB_AGENTS.map(([a, ic]) => `<p class="note"><b style="color:var(--tx)">${ic} ${agName(a, true)}:</b> ${t('agb_' + a + '_d')}</p>`).join('')}<p class="note">${t('ag_about')}</p></div></details>` : ''}</div>`;
   }
 
   // ---------- MollaMyrat: yapay zeka analizleri ----------
@@ -832,6 +853,12 @@
     const m = MATCH[id];
     if (!m) return `${backLink(/^b/.test(id) ? '#/basketbol' : '')}<div class="card empty">${t('no_match_found')}</div>`;
     if (m.sport === 'bb') return viewMatchBB(m);
+    if (!m._d) {
+      loadDet(m);
+      return `${backLink()}<div class="card" style="overflow:hidden"><div class="hero"><div class="meta">${badge(m.lg)} ${esc(ln(m.lg))} · ${dayLabel(dayKey(m.d))} · ${timeOf(m.d)}</div>
+        <div class="vs"><div class="side-t">${logo(m.h)}<span>${esc(tn(m.h))}</span></div><div class="mid">${timeOf(m.d)}<small>${shortDate(m.d)}</small></div><div class="side-t">${logo(m.a)}<span>${esc(tn(m.a))}</span></div></div></div></div>
+        <div class="card empty"><span class="spin"></span> ${t('loading')}</div>`;
+    }
     const TABS = [['pred', t('pred')], ['odds', t('odds')], ['table', t('standings')], ['form', t('formh2h')], ['squad', t('lineups')], ['players', t('players')]];
     let body = '';
     if (dtab === 'pred') body = tabPred(m);
@@ -910,7 +937,7 @@
         </div>
       </div>
       <div class="tip" style="margin-top:14px">
-        <div><div class="lbl">${t('tip')}</div><div class="what">${esc(mkLabel(tp.k, m))}</div></div>
+        <div><div class="lbl">${t('tip')}</div><div class="what">${esc(mkLabel(tp.k, m))}</div>${agChips(m.tip, true)}</div>
         <div><div class="lbl">${t('confidence')} · ${pct(tp.p)}%</div>${stars(tp.stars)}</div>
         ${ob(m, tp.k)}
       </div>
@@ -1180,11 +1207,19 @@
 
 
   // ---------- basketbol ----------
+  function bbAgentCard() {
+    const lim = Date.now() + 48 * 3600e3;
+    const ms = BB.matches.filter(m => future(m) && new Date(m.d).getTime() <= lim && m.tip && m.tip.ag && m.tip.v >= 3)
+      .sort((a, b) => b.tip.v - a.tip.v || b.tip.p - a.tip.p).slice(0, 6);
+    if (!ms.length) return '';
+    return `<div class="card tipc mc" style="margin-top:0;margin-bottom:14px"><div class="tipc-h"><b>🤖 ${t('agb_card')}</b><small>${t('agb_card_s')}</small></div>
+      ${ms.map(m => `<div class="tipc-r"><a class="tt" href="#/mac/${m.id}">${pair(m.h, m.a, ts(m.h), ts(m.a))}<small>${shortDate(m.d)} ${timeOf(m.d)} · <b>${esc(mkLabel(m.tip.k, m))}</b> · ${t('confidence')} ${pct(m.tip.p)}%</small>${agChips(m.tip, true)}</a>${ob(m, m.tip.k)}</div>`).join('')}</div>`;
+  }
   function viewBasketball() {
     const up = BB.matches.filter(future).sort(byDate);
     let html = `<div class="pagehead"><h1>${t('bb_title')}</h1><small>${t('tznote')}</small></div>
       <div class="chips bbnav">${[['analiz', 'analysis'], ['puan', 'tables'], ['sonuclar', 'results']].map(([u, k]) => `<button class="chip" data-go="${u}">${t(k)} →</button>`).join('')}</div>
-      <div id="livebox" data-sport="bb">${liveBox('bb')}</div>`;
+      <div id="livebox" data-sport="bb">${liveBox('bb')}</div>${bbAgentCard()}`;
     if (!up.length) html += `<div class="card empty">${t('bb_none')}</div>`;
     [...new Set(up.map(m => dayKey(m.d)))].sort().forEach(dk => {
       const ms = up.filter(m => dayKey(m.d) === dk);
