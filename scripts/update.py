@@ -89,6 +89,7 @@ HISTORY_START = "2025-08-01"   # aralarindaki maclar icin gecmis
 DAYS_AHEAD = 14                # bultende kac gun ilerisi
 DETAIL_DAYS = 8                # kadro + oyuncu istatistigi kac gun ilerisi icin
 RESULT_DAYS = 14               # sonuclar sayfasi / kupon sonuclandirma
+STATS_FROM = "2026-11-16"      # isabet istatistikleri bu gunden (Askabat gunu) itibaren sayilir; oncesi sayilmaz
 MARGIN = 1.07                  # site oranlarindaki pay (model oranlari)
 THREADS = 12
 FINAL = {"STATUS_FULL_TIME", "STATUS_FINAL_AET", "STATUS_FINAL_PEN"}
@@ -1700,7 +1701,9 @@ def main():
 
     # ---- sitenin son 30 gunluk isabeti (futbol) ----
     acc = {"n": 0, "tip": 0, "res": 0, "sc": 0, "lg": {}}
-    since = NOW - timedelta(days=30)
+    # sayac sifirlamasi: STATS_FROM gununun Askabat gece yarisindan (UTC 19:00, onceki gun) once oynananlar sayilmaz
+    stats_from = datetime.strptime(STATS_FROM, "%Y-%m-%d").replace(tzinfo=timezone.utc) - timedelta(hours=5)
+    since = max(NOW - timedelta(days=30), stats_from)
     for e in done:
         pv = preds.get(e["id"])
         if not pv or e["dt"] < since:
@@ -1729,7 +1732,7 @@ def main():
     data = {"updated": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "leagues": [{"id": l["id"], "n": l["n"], "g": l["g"], "cup": l["cup"], "nat": l["nat"], "tier": l["tier"], "tsdb": bool(l["tsdb"])}
                         for l in LEAGUES],
-            "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb}
+            "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb, "since": STATS_FROM}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

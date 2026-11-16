@@ -642,7 +642,7 @@
     }
     if (A.n) {
       const lgRows = Object.keys(A.lg).sort((a, b) => A.lg[b][0] - A.lg[a][0]).slice(0, 10);
-      html += `<div class="card sec"><h2>${t('m_site')}</h2><div class="kpis">
+      html += `<div class="card sec"><h2>${t('m_site')}${D.since ? ` <small class="mut">${fmt(t('fin_since'), { d: dayShort(D.since) })}</small>` : ''}</h2><div class="kpis">
         <div class="kpi"><small>${t('m_n')}</small><b>${A.n}</b></div>
         <div class="kpi"><small>${t('f_tip')}</small><b style="color:var(--pri)">${pct(A.tip / A.n)}%</b></div>
         <div class="kpi"><small>${t('f_res')}</small><b>${pct(A.res / A.n)}%</b></div>
@@ -1155,14 +1155,14 @@
     const all = liveRes.concat(src).filter(r => bb || lgOk(r));
     const days = [...new Set(all.map(r => dayKey(r.d)))].sort().reverse();
     const list = all;
-    const wp = list.filter(r => r.pr), tipOk = wp.filter(r => wins(r.pr.k, r.hs, r.as, r.pr.ln)).length;
+    const wp = list.filter(r => r.pr && (!D.since || dayKey(r.d) >= D.since)), tipOk = wp.filter(r => wins(r.pr.k, r.hs, r.as, r.pr.ln)).length;
     const scOk = wp.filter(r => (bb ? (r.pr.sc[0] > r.pr.sc[1]) === (r.hs > r.as) : r.pr.sc[0] === r.hs && r.pr.sc[1] === r.as)).length;
     const A = (bb ? D.accbb : D.acc) || { n: 0 };
     let html = `<div class="pagehead"><h1>${t('results')}</h1><small>${t('fin_note')}</small></div>
       ${spSeg()}
       ${bb ? '' : lgChips(new Set(D.results.map(r => r.lg)), true)}`;
     if (!list.length) return html + `<div class="card empty">${t('nomatch')}</div>`;
-    html += `<div class="card sec facc" style="margin-top:0"><h2>${t('fin_all')}</h2><div class="kpis">
+    html += `<div class="card sec facc" style="margin-top:0"><h2>${t('fin_all')}${D.since ? ` <small class="mut">${fmt(t('fin_since'), { d: dayShort(D.since) })}</small>` : ''}</h2><div class="kpis">
       <div class="kpi"><small>${t('c_played')}</small><b>${list.length}</b></div>
       <div class="kpi"><small>${t('f_tip')}</small><b style="color:var(--pri)">${wp.length ? tipOk + '/' + wp.length : '–'}</b></div>
       <div class="kpi"><small>${t(bb ? 'f_win' : 'f_sc')}</small><b style="color:var(--gold)">${wp.length ? scOk + '/' + wp.length : '–'}</b></div>
