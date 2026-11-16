@@ -1052,7 +1052,10 @@ def _clampl(v, lo=0.2, hi=3.6):
 def agent_probs(m):
     """Doner: {ajan: {secenek: olasilik}}; verisi yetmeyen ajan sozlukte yer almaz (cekimser)."""
     out = {"st": _pvec(m["p"])}
-    k = (norm(m["h"]["n"]), norm(m["a"]["n"]))
+    _h = m["h"]; _a = m["a"]
+    _hn = _h["n"] if isinstance(_h, dict) else str(_h)
+    _an = _a["n"] if isinstance(_a, dict) else str(_a)
+    k = (norm(_hn), norm(_an))
     ap = apf_preds.get(k)
     if not ap:
         rk = (k[1], k[0])
@@ -1138,7 +1141,9 @@ def agent_probs(m):
         out["sh"] = _pvec(predict(lh, la))
     # H2H (kafa kafaya): son H2H maclari, ustel azalma agirlikli
     h2h = m.get("h2h") or []
-    hid_m, aid_m = m.get("h"), m.get("a")
+    _hval = m.get("h"); _aval = m.get("a")
+    hid_m = _hval["id"] if isinstance(_hval, dict) else _hval
+    aid_m = _aval["id"] if isinstance(_aval, dict) else _aval
     if len(h2h) >= 3 and hid_m and aid_m:
         h_gf = [g["hs"] if g["h"] == hid_m else g["as"] for g in h2h]
         h_ga = [g["as"] if g["h"] == hid_m else g["hs"] for g in h2h]
