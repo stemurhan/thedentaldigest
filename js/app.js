@@ -62,7 +62,7 @@
     if (merged.size !== srv.length) SB.from('profiles').update({ favs: [...merged] }).eq('id', profile.id).then(() => { });
     FAV = merged; LS.set('fav', [...FAV]);
   }
-  const flt = { lg: 'all', day: 'all', q: '', alim: 48, lvall: false, blim: 3, rlim: 2 };
+  const flt = { lg: 'all', day: 'all', q: '', alim: 24, lvall: false, blim: 3, rlim: 2 };
   let FAV = new Set(LS.get('fav', []));
   const isFavM = m => FAV.has(m.h) || FAV.has(m.a);
   const lgOk = m => flt.lg === 'all' || (flt.lg === 'fav' ? isFavM(m) : m.lg === flt.lg);
@@ -236,7 +236,7 @@
     const bbm = /^#\/mac\/b/.test(h);
     const act = k => (k === 'bulletin' ? (h === '#/' || h === '#' || (h.startsWith('#/mac') && !bbm)) : (h.startsWith(NAV.find(n => n[0] === k)[1]) || (k === 'basketball' && bbm)));
     $('nav').innerHTML = NAV.map(([k, u]) => `<a href="${u}" class="${act(k) ? 'on' : ''}" ${act(k) ? 'aria-current="page"' : ''}>${t(k)}${k === 'bulletin' || k === 'basketball' ? `<span class="lvn" data-sport="${k === 'bulletin' ? 'fb' : 'bb'}" hidden></span>` : ''}</a>`).join('')
-      + `<a href="#/mollamyrat" class="mm ${h.startsWith('#/mollamyrat') ? 'on' : ''}">★ MollaMyrat</a>`;
+      + `<a href="#/mollamyrat" class="mm ${h.startsWith('#/mollamyrat') ? 'on' : ''}">★ ${t('tipc_title')}</a>`;
     $('tabs').innerHTML = NAV.map(([k, u]) => `<a href="${u}" class="${act(k) ? 'on' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg><span>${t(k + '_s') !== k + '_s' ? t(k + '_s') : t(k)}</span></a>`).join('')
       + `<a href="#/mollamyrat" class="mm ${h.startsWith('#/mollamyrat') ? 'on' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/></svg><span>${t('molla_s')}</span></a>`;
     $('bal').innerHTML = user
@@ -288,11 +288,11 @@
     const f = ms => new Date(ms).toISOString().slice(0, 10);
     return [f(base), f(base + 6 * 864e5)];
   }
-  function weekStats(off, kind) {
+  function weekStats(off, kind, own) {
     const [a, b] = weekRange(off), cs = MOLLA.coupons.filter(c => c.date >= a && c.date <= b);
     const r = { a, b, cs, ok: 0, no: 0, wait: 0, sok: 0, sno: 0, swait: 0 };
     cs.forEach(c => {
-      kPicks(c, kind).forEach(x => { const ok = pkOk(x); if (ok === true) r.ok++; else if (ok === false) r.no++; else r.wait++; });
+      kPicks(c, kind, own).forEach(x => { const ok = pkOk(x); if (ok === true) r.ok++; else if (ok === false) r.no++; else r.wait++; });
       (c.scores || []).forEach(x => { const ok = pkOk(x, true); if (ok === true) r.sok++; else if (ok === false) r.sno++; else r.swait++; });
     });
     return r;
@@ -312,7 +312,12 @@
     return { N, k, cols: cs.length, per, ok, no, wcols: wcs.length, max: cs.reduce((a, c) => a + prodO(c) * per, 0), win: wcs.reduce((a, c) => a + prodO(c) * per, 0),
       st: no > N - k ? 'lost' : ok >= k ? 'won' : 'pending' };
   }
-  const kPicks = (c, kind) => (kind === 'hi' ? (hiOf(c) || {}).picks : kind === 'sys' ? (sysOf(c) || {}).picks : c.picks) || [];
+  // own: 'all' (ortak kupon) ya da bir analizcinin kimligi (kendi kuponu)
+  const kPicks = (c, kind, own) => {
+    if (own && own !== 'all') { const o = (c.ac || {})[own] || {}; return (kind === 'sys' ? (o.sys || {}).picks : o[kind === 'hi' ? 'hi' : 'main']) || []; }
+    return (kind === 'hi' ? (hiOf(c) || {}).picks : kind === 'sys' ? (sysOf(c) || {}).picks : c.picks) || [];
+  };
+  const sysK = (c, own) => (own && own !== 'all' ? (((c.ac || {})[own] || {}).sys || {}).k : (c.sys || {}).k) || 3;
   function molRow(pk, score) {
     const lg = LG[pk.lg] ? esc(ln(pk.lg)) : '';
     const tag = MATCH[pk.id] ? 'a' : 'div', href = MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : '';
@@ -337,54 +342,38 @@
       ${sysOf(c) ? `<button type="button" class="tipx" data-mk="sys" data-mgo="1"><span>🎯 ${t('m_k_sys')}</span><b class="num">${sysOf(c).k}/${sysOf(c).picks.length}</b></button>` : ''}
       <a class="btn ghost" href="#/mollamyrat">${t('m_track')} →</a></div></div>`;
   }
+  // ---------- Analiz Kuponlari: ortak kupon + bes analizcinin kendi kuponlari (yalnizca kuponlar) ----------
+  const cpnState = pk => { const ok = pk.filter(x => pkOk(x) === true).length, no = pk.filter(x => pkOk(x) === false).length; return { ok, no, st: no ? 'lost' : ok === pk.length ? 'won' : 'pending' }; };
+  const agAv = (a, bb, ic) => (bb ? `<i class="av emo">${ic}</i>` : a === 'all' ? '<i class="av a-all">★</i>' : `<i class="av a-${a}">${esc(t('ag_' + a).slice(0, 1))}</i>`);
+  function akRow(pk, joint) {
+    const res = pkRes(pk), tag = MATCH[pk.id] ? 'a' : 'div';
+    return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
+  }
+  function akCard(c, mk, own) {
+    const pk = kPicks(c, mk, own), ic = { main: '★', hi: '🔥', sys: '🎯' }[mk];
+    if (!pk.length) return `<div class="card akc none"><div class="akh"><b>${ic} ${t('m_t_' + mk)}</b></div><div class="akn">${t('ak_none')}</div></div>`;
+    const at = `data-cdate="${c.date}" data-ck="${mk}" data-own="${own}"`, tot = prodO(pk), sy = mk === 'sys' ? sysInfo({ k: sysK(c, own), picks: pk }) : null;
+    const st = sy ? sy.st : cpnState(pk).st;
+    const foot = sy
+      ? `<div><small>${sy.k}/${sy.N} · ${sy.cols} ${t('sys_cols')}</small><b class="num">${money(MIN_STAKE)}</b></div><div><small>${t(sy.ok + sy.no ? 'sys_wcols' : 'max_win')}</small><b class="num win">${sy.ok + sy.no ? sy.wcols + '/' + sy.cols + ' · ' + money(Math.min(sy.win, MAX_WIN)) : money(Math.min(sy.max, MAX_WIN))}</b></div>`
+      : `<div><small>${t('total_odds')}</small><b class="num od">${tot.toFixed(2)}</b></div><div><small>${fmt(t('tipc_min'), { s: MIN_STAKE })}</small><b class="num win">${money(Math.min(MIN_STAKE * tot, MAX_WIN))}</b></div>`;
+    return `<div class="card akc ${st}"><div class="akh"><b>${ic} ${t('m_t_' + mk)}${sy ? ` ${sy.k}/${sy.N}` : ''}</b><span class="st ${st}">${t(st)}</span>${shareBtn('share-molla', at)}</div>
+      ${pk.map(x => akRow(x, own === 'all')).join('')}<div class="akf">${foot}</div>${!sy && pk.some(pkLive) ? `<button class="btn akb" data-act="tipadd" ${at}>${t('tipc_add')}</button>` : ''}</div>`;
+  }
+  function akSection(c, own) {
+    const r = own === 'all' ? null : (D.agacc || {})[own];
+    return `<section class="aks"><div class="aksh">${agAv(own)}<div><b>${own === 'all' ? t('ac_joint') : t('ag_' + own)}</b><small>${t(own === 'all' ? 'ak_joint_s' : 'ag_' + own + '_r')}</small></div>
+      ${r && r[0] ? `<span class="akk num" title="${esc(t('an_karne'))}"><b>${pct(r[1] / r[0])}%</b> ${r[1]}/${r[0]}</span>` : ''}</div>
+      <div class="akg">${['main', 'hi', 'sys'].map(k => akCard(c, k, own)).join('')}</div></section>`;
+  }
   function viewMolla() {
-    const mk = ['main', 'hi', 'sys'].includes(flt.mk) ? flt.mk : 'main';
-    const w = weekStats(0, mk), lw = weekStats(-1, mk), c0 = MOLLA.coupons[0];
-    const rate = (o, n) => (o + n ? pct(o / (o + n)) + '%' : '–');
-    const seg = `<div class="seg mseg" role="tablist">${[['main', '★'], ['hi', '🔥'], ['sys', '🎯']].map(([k, ic]) => `<button role="tab" aria-selected="${mk === k}" class="${mk === k ? 'on' : ''}" data-mk="${k}">${ic} ${t('m_t_' + k)}</button>`).join('')}</div>`;
-    const box = x => `<div class="kpis m5">
-      <div class="kpi"><small>${t('m_ok')}</small><b style="color:var(--pri)">${x.ok}</b></div>
-      <div class="kpi"><small>${t('m_no')}</small><b style="color:var(--red)">${x.no}</b></div>
-      <div class="kpi"><small>${t('m_wait')}</small><b>${x.wait}</b></div>
-      <div class="kpi"><small>${t('m_rate')}</small><b style="color:var(--gold)">${rate(x.ok, x.no)}</b></div>
-      <div class="kpi"><small>${t('m_score_hit')}</small><b>${x.sok}/${x.sok + x.sno}</b></div></div>`;
-    const cpn = c => {
-      const o = c.picks.filter(x => pkOk(x) === true).length, n = c.picks.filter(x => pkOk(x) === false).length;
-      const st = n ? 'lost' : (o === c.picks.length ? 'won' : 'pending');
-      const head = `<h3 class="mdate">${cRange(c)}</h3>`, parts = {};
-      parts.main = `<div class="card tipc mc"><div class="tipc-h row"><b>★ ${t('m_k_main')}</b>${shareBtn('share-molla', `data-cdate="${c.date}"`)}<span class="st ${st}">${t(st)}</span><small class="num">${o} ✓ · ${n} ✗ · ${c.picks.length - o - n} •</small></div>${c.picks.map(x => molRow(x)).join('')}
-        <div class="tipc-f"><div class="sum"><span>${t('total_odds')}</span><b class="num">${prodO(c.picks).toFixed(2)}</b></div>
-        ${c.picks.some(pkLive) ? `<button class="btn" data-act="tipadd" data-cdate="${c.date}">${t('tipc_add')}</button>` : ''}</div></div>`;
-      const hi = hiOf(c), sy = sysOf(c);
-      if (hi) {
-        const ho = hi.picks.filter(x => pkOk(x) === true).length, hn = hi.picks.filter(x => pkOk(x) === false).length, tot = prodO(hi.picks);
-        const hs = hn ? 'lost' : (ho === hi.picks.length ? 'won' : 'pending');
-        parts.hi = `<div class="card tipc mc"><div class="tipc-h row"><b>🔥 ${t('m_k_hi')}</b>${shareBtn('share-molla', `data-cdate="${c.date}" data-ck="hi"`)}<span class="st ${hs}">${t(hs)}</span><small class="num">${ho} ✓ · ${hn} ✗ · ${hi.picks.length - ho - hn} •</small></div>${hi.picks.map(x => molRow(x)).join('')}
-          <div class="tipc-f"><div class="sum"><span>${t('total_odds')}</span><b class="num" style="color:var(--gold)">${tot.toFixed(2)}</b></div>
-          <div class="sum"><span>${fmt(t('tipc_min'), { s: MIN_STAKE })}</span><b class="num" style="color:var(--pri)">${money(Math.min(MIN_STAKE * tot, MAX_WIN))}</b></div>
-          ${hi.picks.some(pkLive) ? `<button class="btn" data-act="tipadd" data-cdate="${c.date}" data-ck="hi">${t('tipc_add')}</button>` : ''}</div></div>`;
-      }
-      if (sy) {
-        const S = sysInfo(sy);
-        parts.sys = `<div class="card tipc mc"><div class="tipc-h row"><b>🎯 ${t('m_k_sys')} ${S.k}/${S.N}</b>${shareBtn('share-molla', `data-cdate="${c.date}" data-ck="sys"`)}<span class="st ${S.st}">${t(S.st)}</span><small class="num">${S.ok} ✓ · ${S.no} ✗ · ${S.N - S.ok - S.no} •</small></div>${sy.picks.map(x => molRow(x)).join('')}
-          <div class="tipc-f"><div class="sum"><span>${fmt(t('sys_rule'), { k: S.k, n: S.N })}</span><b class="num">${S.cols} ${t('sys_cols')}</b></div>
-          <div class="sum"><span>${t('sys_per')} × ${S.cols}</span><b class="num">${money(S.per)} → ${money(MIN_STAKE)}</b></div>
-          <div class="sum"><span>${t('sys_max')}</span><b class="num" style="color:var(--pri)">${money(Math.min(S.max, MAX_WIN))}</b></div>
-          ${S.ok + S.no ? `<div class="sum"><span>${t('sys_wcols')}: ${S.wcols}/${S.cols}</span><b class="num" style="color:var(--gold)">${money(Math.min(S.win, MAX_WIN))}</b></div>` : ''}
-          <p class="note" style="margin:8px 0 0">${fmt(t('sys_note'), { k: S.k })}</p></div></div>`;
-      }
-      return parts[mk] ? head + parts[mk] : '';
-    };
-    const range = x => `${dayShort(x.a)} – ${dayShort(x.b)}`;
-    return `<div class="pagehead"><h1>★ ${t('tipc_title')}</h1></div>${seg}
-      <h2 class="dayhead">${t('m_coupons')}</h2>
-      ${w.cs.map(cpn).join('') || `<div class="card empty">${t('m_none')}</div>`}
-      ${mollaAI(mk)}
-      <div class="card sec"><h2>${t('m_week')} <small class="mut num">${range(w)}</small></h2>${box(w)}</div>
-      ${c0 && c0.scores && c0.scores.length ? `<div class="card tipc mc"><div class="tipc-h"><b>${t('m_scores')}</b><small>${cRange(c0)}</small></div>${c0.scores.map(x => molRow(x, true)).join('')}</div>` : ''}
-      ${lw.cs.map(cpn).join('') ? `<div class="card sec"><h2>${t('m_last')} <small class="mut num">${range(lw)}</small></h2>${box(lw)}</div><details class="lastw"><summary>${t('m_last')} · ${t('m_coupons')}</summary>${lw.cs.map(cpn).join('')}</details>` : ''}
-      ${mollaArchive()}
-      <div class="card sec mnotif"><span>🔔 ${t('n_molla_hint')}</span>${notifOn() ? `<b class="mut">${t('notif_enabled')}</b>` : notifSup() && Notification.permission !== 'denied' ? `<button type="button" class="btn" data-act="notif">${t('notif_on')}</button>` : ''}</div>`;
+    const per = MOLLA.coupons.filter(x => x.ac), c = per.find(x => x.date === flt.mp) || per[0] || MOLLA.coupons[0];
+    if (!c) return `<div class="pagehead"><h1>${t('tipc_title')}</h1></div><div class="card empty">${t('m_none')}</div>`;
+    const owners = ['all'].concat(AGENTS.map(x => x[0])), own = owners.includes(flt.ma) ? flt.ma : null;
+    return `<div class="pagehead"><h1>${t('tipc_title')}</h1><small class="num">${cRange(c)}</small></div>
+      ${strip(`<button class="chip ${own ? '' : 'on'}" data-ma="*">${t('all')}</button>` + owners.map(o => `<button class="chip akchip ${own === o ? 'on' : ''}" data-ma="${o}">${agAv(o)}${o === 'all' ? t('ac_joint') : t('ag_' + o)}</button>`).join(''), 'owns')}
+      ${per.length > 1 ? `<div class="chips akper">${per.map(x => `<button class="chip ${x === c ? 'on' : ''}" data-mp="${x.date}">${cRange(x)}</button>`).join('')}</div>` : ''}
+      ${(own ? [own] : owners).map(o => akSection(c, o)).join('')}`;
   }
 
   // ---------- favori karti, bildirimler ----------
@@ -475,20 +464,20 @@
       slip.map(x => { const m = MATCH[x.m]; return { teams: tn(m.h) + ' – ' + tn(m.a), sub: mkLabel(x.k, m) + ' · ' + shortDate(m.d) + ' ' + timeOf(m.d), o: m.o[x.k].toFixed(2) }; }),
       { tot: tot.toFixed(2), stake: money(st), win: money(Math.min(st * tot, MAX_WIN)) }, slip);
   }
-  function shareMolla(date, kind) {
+  function shareMolla(date, kind, own) {
     const c0 = MOLLA.coupons.find(x => x.date === date) || MOLLA.coupons[0]; if (!c0) return;
-    const pk = kPicks(c0, kind); if (!pk.length) return;
+    const mk = kind === 'hi' || kind === 'sys' ? kind : 'main', pk = kPicks(c0, mk, own); if (!pk.length) return;
+    const who = own && own !== 'all' ? t('ag_' + own) : t('ac_joint');
     const rows = x => ({ teams: pkName(x, 'h') + ' – ' + pkName(x, 'a'), sub: mkLabel(x.k) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: x.o.toFixed(2), mark: mark(pkOk(x)) });
-    if (kind === 'sys') {
-      const S = sysInfo(c0.sys);
-      return shareCoupon('★ MollaMyrat · ' + t('m_k_sys') + ' ' + S.k + '/' + S.N, cRange(c0) + ' · ' + fmt(t('sys_rule'), { k: S.k, n: S.N }), pk.map(rows),
-        { tot: S.k + '/' + S.N + ' · ' + S.cols + ' ' + t('sys_cols'), stake: money(MIN_STAKE), win: money(Math.min(S.max, MAX_WIN)) }, pk.map(x => ({ m: x.id, k: x.k })));
+    const sels = pk.map(x => ({ m: x.id, k: x.k })), head = '★ ' + t('tipc_title') + ' · ' + who;
+    if (mk === 'sys') {
+      const S = sysInfo({ k: sysK(c0, own), picks: pk });
+      return shareCoupon(head + ' · ' + t('m_k_sys') + ' ' + S.k + '/' + S.N, cRange(c0) + ' · ' + fmt(t('sys_rule'), { k: S.k, n: S.N }), pk.map(rows),
+        { tot: S.k + '/' + S.N + ' · ' + S.cols + ' ' + t('sys_cols'), stake: money(MIN_STAKE), win: money(Math.min(S.max, MAX_WIN)) }, sels);
     }
-    const c = { picks: pk };
-    const tot = c.picks.reduce((p, x) => p * x.o, 1);
-    shareCoupon('★ ' + (kind === 'hi' ? 'MollaMyrat · ' + t('m_k_hi') : t('tipc_title')), cRange(c0) + ' · ' + (kind === 'hi' ? c.picks.length + ' ' + t('selections') : fmt(t('tipc_sub'), { n: c.picks.length })),
-      c.picks.map(x => ({ teams: pkName(x, 'h') + ' – ' + pkName(x, 'a'), sub: mkLabel(x.k) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: x.o.toFixed(2), mark: mark(pkOk(x)) })),
-      { tot: tot.toFixed(2), stake: money(MIN_STAKE), win: money(Math.min(MIN_STAKE * tot, MAX_WIN)) }, c.picks.map(x => ({ m: x.id, k: x.k })));
+    const tot = prodO(pk);
+    shareCoupon(head + ' · ' + t('m_k_' + mk), cRange(c0) + ' · ' + pk.length + ' ' + t('selections'), pk.map(rows),
+      { tot: tot.toFixed(2), stake: money(MIN_STAKE), win: money(Math.min(MIN_STAKE * tot, MAX_WIN)) }, sels);
   }
   function shareUserCoupon(cid) {
     const c = coupons.find(x => x.id === cid); if (!c) return;
@@ -507,7 +496,7 @@
   }
 
   // ---------- MollaMyrat: analiz ajanlari (veri betigi hesaplar; kuponlar ajanlarin ortak karariyla kurulur) ----------
-  const AGENTS = [['st', '📊'], ['mk', '💹'], ['fm', '📈'], ['sh', '🏟️'], ['vr', '⚖️']];
+  const AGENTS = [['fn', '🧮'], ['st', '📊'], ['mk', '💹'], ['fm', '📈'], ['vr', '⚖️']];
   const BB_AGENTS = [['pw', '🏀'], ['mk', '💹'], ['fm', '📈'], ['rs', '🛌'], ['in', '🩺']];
   const agList = bb => (bb ? BB_AGENTS : AGENTS);
   const agName = (a, bb) => t((bb ? 'agb_' : 'ag_') + a);
@@ -789,17 +778,13 @@
     return html;
   }
   function row(m, wd) {
-    const ai = m.p && m.o ? (() => {
-      const ks = Object.keys(m.o).filter(k => probOf(m, k) >= 0.35);   // uzun vadci oranlar oneri olarak cikmasin
-      if (!ks.length) return null;
-      const v = ks.slice().sort((a, b) => probOf(m, b) * m.o[b] - probOf(m, a) * m.o[a])[0];
-      return { k: v, o: m.o[v] };
-    })() : null;
+    const c = m.ag ? agCons(m) : null, p = m.p || {}, x2 = v => v.toFixed(2);
     return `<div class="mrow">
       <a class="minfo" href="#/mac/${m.id}">
         <div class="mtime num">${wd === true ? `<span class="md">${shortDate(m.d)}</span>` : ''}${timeOf(m.d)}</div>
-        <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div></div>
-        ${ai ? `<div class="aihint">🤖 ${esc(mkLabel(ai.k, m))} · ${ai.o.toFixed(2)}</div>` : ''}
+        <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div>
+          ${p.lh != null ? `<div class="xgr num" title="${esc(t('xg_tip'))}">xG <b>${x2(p.lh)}–${x2(p.la)}</b><span> · xGA <b>${x2(p.la)}–${x2(p.lh)}</b></span></div>` : ''}
+          ${c && c.n >= 2 ? `<div class="xgr agh">🤝 <b>${esc(mkLabel(c.k, m))}</b> · ${m.o[c.k].toFixed(2)} · ${c.n}/5</div>` : ''}</div>
       </a>
       <div class="og c3 ms">${ob(m, '1')}${ob(m, 'X')}${ob(m, '2')}</div>
       <div class="og c2 ou">${ob(m, 'U2.5', t('under'))}${ob(m, 'O2.5', t('over'))}</div>
@@ -811,40 +796,55 @@
   // ---------- analiz listesi ----------
   const pbar = p => `<div class="pbar num"><div class="p1" style="flex:${p.p1}">${pct(p.p1)}%</div>${p.px != null ? `<div class="px" style="flex:${p.px}">${pct(p.px)}%</div>` : ''}<div class="p2" style="flex:${p.p2}">${pct(p.p2)}%</div></div>`;
   const spSeg = () => `<div class="seg" role="tablist">${['fb', 'bb'].map(k => `<button class="${(flt.sp === 'bb' ? 'bb' : 'fb') === k ? 'on' : ''}" data-sp="${k}">${t('sp_' + k)}</button>`).join('')}</div>`;
-  function viewAnalysisBB() {
-    const up = BB.matches.filter(future).sort(byDate);
-    const days = pickDay(up);
-    const list = up.filter(m => flt.day === 'all' || dayKey(m.d) === flt.day);
-    const html = `<div class="pagehead"><h1>${t('analysis')} · ${t('basketball')}</h1><small>${t('foot_disc')}</small></div>${spSeg()}${dayStrip(days)}`;
-    if (!list.length) return html + `<div class="card empty">${t('bb_none')}</div>`;
-    return html + '<div class="acards">' + list.map(m => {
-      const tp = tipOf(m), p = m.p;
-      return `<a class="card acard" href="#/mac/${m.id}">
-        <div class="top-l"><span>${badge('nba')} NBA</span><span class="num">${shortDate(m.d)} ${timeOf(m.d)}</span></div>
-        <div class="teams"><div class="tm">${logo(m.h)}<span>${esc(ts(m.h))}</span></div><div class="ps">${p.score[0]} - ${p.score[1]}</div><div class="tm">${logo(m.a)}<span>${esc(ts(m.a))}</span></div></div>
-        ${pbar(p)}
-        <div class="top-l"><span>${t('tip')}: <b style="color:var(--tx)">${esc(mkLabel(tp.k, m))}</b> · <span class="num">${tp.o.toFixed(2)}</span></span>${stars(tp.stars)}</div>
-      </a>`;
-    }).join('') + '</div>';
+  // ortak karar: analizcilerin en cok birlestigi secim
+  function agCons(m) {
+    if (m.sport === 'bb') return m.tip && m.tip.ag && m.o[m.tip.k] ? { k: m.tip.k, n: m.tip.v } : null;
+    const n = {}; AGENTS.forEach(([a]) => { const x = (m.ag || {})[a]; if (x && m.o[x[0]]) n[x[0]] = (n[x[0]] || 0) + 1; });
+    const top = Object.keys(n).sort((x, y) => n[y] - n[x])[0];
+    return top ? { k: top, n: n[top] } : null;
+  }
+  function shortLab(k, m) {
+    if (k === 'BO' || k === 'BU') return (k === 'BO' ? t('over') : t('under')) + ' ' + (m || {}).line;
+    if (/^[OU]/.test(k)) return (k[0] === 'O' ? t('over') : t('under')) + ' ' + k.slice(1);
+    if (k === 'KGV' || k === 'KGY') return t('kg_s') + ' ' + (k === 'KGV' ? t('yes') : t('no'));
+    return /^(1|X|2)$/.test(k) ? t('ms_s') + ' ' + k : k;
+  }
+  // bes analizcinin bu mactaki secimi: yan yana bes kutu
+  function agTiles(m) {
+    const bb = m.sport === 'bb', c = agCons(m);
+    return `<div class="agt5">${agList(bb).map(([a, ic]) => {
+      const x = (m.ag || {})[a], nm = bb ? t('agb_' + a + '_s') : t('ag_' + a);
+      if (!x || !m.o[x[0]]) return `<div class="agtile na" title="${esc(agName(a, bb))}: ${esc(t('ag_na'))}">${agAv(a, bb, ic)}<span class="nm">${esc(nm)}</span><b>–</b><small>&nbsp;</small></div>`;
+      const v = x[1], lv = a === 'vr' ? (v >= .03 ? 'hi' : v >= -.03 ? 'mid' : 'lo') : (v >= .65 ? 'hi' : v >= .55 ? 'mid' : 'lo');
+      return `<div class="agtile ${lv}${c && c.n >= 2 && c.k === x[0] ? ' agr' : ''}" title="${esc(agName(a, bb))}: ${esc(mkLabel(x[0], m))}">${agAv(a, bb, ic)}<span class="nm">${esc(nm)}</span><b>${esc(shortLab(x[0], m))}</b><small class="num">${agVal(a, v)}</small></div>`;
+    }).join('')}</div>`;
+  }
+  function agScoreStrip(bb) {
+    const A = (bb ? D.agaccbb : D.agacc) || {};
+    return `<div class="agks">${agList(bb).map(([a, ic]) => { const r = A[a] || [0, 0];
+      return `<div class="agk1">${agAv(a, bb, ic)}<div><b>${esc(bb ? t('agb_' + a + '_s') : t('ag_' + a))}</b><small>${esc(bb ? '' : t('ag_' + a + '_r'))}</small></div><span class="num">${r[0] ? `<b>${pct(r[1] / r[0])}%</b><small>${r[1]}/${r[0]}</small>` : '<b>–</b><small>0</small>'}</span></div>`; }).join('')}</div>`;
+  }
+  function anCard(m) {
+    const bb = m.sport === 'bb', p = m.p, c = agCons(m);
+    return `<a class="card anc" href="#/mac/${m.id}">
+      <div class="anh"><span>${badge(bb ? 'nba' : m.lg)} ${esc(bb ? 'NBA' : ln(m.lg))}</span><span class="num">${shortDate(m.d)} ${timeOf(m.d)}</span></div>
+      <div class="ant"><div class="tm">${logo(m.h)}<span>${esc(ts(m.h))}</span></div><div class="sc"><b class="num">${p.score[0]} - ${p.score[1]}</b>${!bb && p.lh != null ? `<small class="num" title="${esc(t('xg_tip'))}">xG ${p.lh.toFixed(2)} – ${p.la.toFixed(2)}</small>` : ''}</div><div class="tm r"><span>${esc(ts(m.a))}</span>${logo(m.a)}</div></div>
+      ${pbar(p)}
+      ${agTiles(m)}
+      ${c && c.n >= 2 ? `<div class="anf"><span class="pill">${t('ag_cons')}</span><b>${esc(mkLabel(c.k, m))}</b><span class="num od">${m.o[c.k].toFixed(2)}</span><span class="num vt">${c.n}/5</span></div>` : ''}
+    </a>`;
   }
   function viewAnalysis() {
-    if (flt.sp === 'bb') return viewAnalysisBB();
-    const up = upcoming();
-    const inLg = up.filter(lgOk);
-    const days = pickDay(inLg);
-    const list = inLg.filter(m => flt.day === 'all' || dayKey(m.d) === flt.day).sort(byDate);
-    let html = `<div class="pagehead"><h1>${t('analysis')}</h1><small>${t('foot_disc')}</small></div>${spSeg()}${dayStrip(days)}${lgChips(new Set(up.map(m => m.lg)), true)}`;
-    if (!list.length) return html + `<div class="card empty">${t('nomatch')}</div>`;
+    const bb = flt.sp === 'bb', up = bb ? BB.matches.filter(future) : upcoming(), inLg = bb ? up : up.filter(lgOk);
+    const sort = flt.asort === 'cons' ? 'cons' : 'time', cn = m => { const c = agCons(m); return c ? c.n : 0; };
+    const list = inLg.slice().sort(sort === 'cons' ? (a, b) => cn(b) - cn(a) || byDate(a, b) : byDate);
+    const html = `<div class="pagehead"><h1>${t('analysis')}</h1></div>
+      <div class="anbar">${spSeg()}<div class="seg" role="tablist">${[['time', t('an_s_time')], ['cons', t('an_s_cons')]].map(([k, l]) => `<button class="${sort === k ? 'on' : ''}" data-asort="${k}">${l}</button>`).join('')}</div></div>
+      ${bb ? '' : lgChips(new Set(up.map(m => m.lg)), true)}${agScoreStrip(bb)}`;
+    if (!list.length) return html + `<div class="card empty">${t(bb ? 'bb_none' : 'nomatch')}</div>`;
     const more = list.length - flt.alim;
-    return html + '<div class="acards">' + list.slice(0, flt.alim).map(m => {
-      const tp = tipOf(m), p = m.p;
-      return `<a class="card acard" href="#/mac/${m.id}">
-        <div class="top-l"><span>${badge(m.lg)} ${esc(ln(m.lg))}</span><span class="num">${shortDate(m.d)} ${timeOf(m.d)}</span></div>
-        <div class="teams"><div class="tm">${logo(m.h)}<span>${esc(ts(m.h))}</span></div><div class="ps">${p.score[0]} - ${p.score[1]}</div><div class="tm">${logo(m.a)}<span>${esc(ts(m.a))}</span></div></div>
-        ${pbar(p)}
-        <div class="top-l"><span>${t('tip')}: <b style="color:var(--tx)">${esc(mkLabel(tp.k))}</b> · <span class="num">${tp.o.toFixed(2)}</span></span>${stars(tp.stars)}</div>
-      </a>`;
-    }).join('') + '</div>' + (more > 0 ? `<button class="btn ghost more" data-act="amore">${fmt(t('show_more'), { n: more })}</button>` : '');
+    return html + '<div class="ancs">' + list.slice(0, flt.alim).map(anCard).join('') + '</div>'
+      + (more > 0 ? `<button class="btn ghost more" data-act="amore">${fmt(t('show_more'), { n: more })}</button>` : '');
   }
 
   // ---------- mac detay ----------
@@ -1610,8 +1610,8 @@
     const d = b.dataset;
     if (d.m && d.k) return toggleSel(d.m, d.k);
     if (d.scroll) { const c = b.parentNode.querySelector('.chips'); return c.scrollBy({ left: +d.scroll * c.clientWidth * .7, behavior: 'smooth' }); }
-    if (d.lg) { flt.lg = flt.lg === d.lg ? 'all' : d.lg; flt.alim = 48; return render(); }
-    if (d.day) { flt.day = d.day; flt.q = ''; flt.alim = 48; return render(); }
+    if (d.lg) { flt.lg = flt.lg === d.lg ? 'all' : d.lg; flt.alim = 24; return render(); }
+    if (d.day) { flt.day = d.day; flt.q = ''; flt.alim = 24; return render(); }
     if (d.rday) { flt.rday = d.rday; return render(); }
     if (d.dtab) { dtab = d.dtab; return render(); }
     if (d.fav) {
@@ -1623,12 +1623,14 @@
       toast(fmt(t(on ? 'fav_added' : 'fav_removed'), { n: tn(id) }));
       const y = scrollY; render(); scrollTo(0, y); return;
     }
-    if (d.sp) { flt.sp = d.sp; flt.rday = undefined; flt.alim = 48; return render(); }
+    if (d.sp) { flt.sp = d.sp; flt.rday = undefined; flt.alim = 24; return render(); }
     if (d.go) { flt.rday = undefined; location.hash = '#/' + d.go; return; }
-    if (d.mk) { flt.mk = d.mk; if (d.mgo && !/^#\/mollamyrat/.test(location.hash)) { location.hash = '#/mollamyrat'; return; } const y = scrollY; render(); scrollTo(0, y); return; }
+    if (d.asort) { flt.asort = d.asort; flt.alim = 24; return render(); }
+    if (d.mp) { flt.mp = d.mp; const y = scrollY; render(); scrollTo(0, y); return; }
+    if (d.mk || d.ma) { if (d.mk) flt.mk = d.mk; if (d.ma) flt.ma = d.ma === '*' ? null : d.ma; if (d.mgo && !/^#\/mollamyrat/.test(location.hash)) { location.hash = '#/mollamyrat'; return; } const y = scrollY; render(); scrollTo(0, y); return; }
     if (d.act === 'notif') return toggleNotif();
     if (d.act === 'share-slip') return shareSlip();
-    if (d.act === 'share-molla') return shareMolla(d.cdate, d.ck);
+    if (d.act === 'share-molla') return shareMolla(d.cdate, d.ck, d.own);
     if (d.act === 'share-cpn') return shareUserCoupon(d.cid);
     if (d.ttab) { ttab = d.ttab; return render(); }
     if (d.rm) return toggleSel(d.rm, (slip.find(s => s.m === d.rm) || {}).k);
@@ -1640,10 +1642,10 @@
     if (d.act === 'share-saved') return shareSaved(d.sid);
     if (d.ctab) { flt.ctab = d.ctab; return render(); }
     if (d.act === 'bmore' || d.act === 'rmore') { flt[d.act === 'bmore' ? 'blim' : 'rlim'] = 999; const y = scrollY; render(); scrollTo(0, y); return; }
-    if (d.act === 'amore') { flt.alim += 48; const y = scrollY; render(); scrollTo(0, y); return; }
+    if (d.act === 'amore') { flt.alim += 24; const y = scrollY; render(); scrollTo(0, y); return; }
     if (d.act === 'lvall') { flt.lvall = !flt.lvall; return paintLive(); }
     if (d.act === 'tipadd') {
-      slip = kPicks(MOLLA.coupons.find(x => x.date === d.cdate) || MOLLA.coupons[0], d.ck).filter(pkLive).slice(0, MAX_SEL).map(x => ({ m: x.id, k: x.k })); LS.set('slip', slip); slipErr = '';
+      slip = kPicks(MOLLA.coupons.find(x => x.date === d.cdate) || MOLLA.coupons[0], d.ck, d.own).filter(pkLive).slice(0, MAX_SEL).map(x => ({ m: x.id, k: x.k })); LS.set('slip', slip); slipErr = '';
       toast(t('tipc_added')); syncObs(); renderSlip();
       if (matchMedia('(max-width:860px)').matches) document.body.classList.add('slipopen');
       return;

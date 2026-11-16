@@ -1027,8 +1027,15 @@ LG_GOALS = {
 _LG_DEFAULT = (1.45, 1.15)
 
 
-AGENTS = ["st", "mk", "fm", "sh", "h2", "vr", "apf"]
-VOTE_AGENTS = [a for a in AGENTS if a != "vr"]
+# Bes analizci. Ilk dordu kendi gol beklentisini (xG) ve her secenek icin kendi olasiligini uretir:
+#   fn  Fenasi     : lig gol ortalamasi + ev sahibi avantaji, rakip gucune gore duzeltilmis ic saha / deplasman
+#                    hucum-savunma katsayilari (az macta lig ortalamasina cekilir), eksik oyuncu, dinlenme suresi
+#   st  Istatistik : sitenin Poisson/xG modeli (sezon gucu + piyasa harmani)
+#   mk  Piyasa     : bahis sitelerinin oranlarindan paydan arindirilmis olasilik (site orani yoksa cekimser)
+#   fm  Form       : yalnizca son 6 mac (yeni maclar daha agir)
+#   vr  Deger/Risk : diger dordunun ortak olasiligini oranla karsilastirir (beklenen getiri) + risk suzgeci
+AGENTS = ["fn", "st", "mk", "fm", "vr"]
+VOTE_AGENTS = AGENTS[:4]
 apf_preds = {}
 AG_KEYS = ["1", "X", "2", "1X", "12", "X2", "O1.5", "U1.5", "O2.5", "U2.5", "O3.5", "U3.5", "KGV", "KGY"]
 # kupon turleri: oran araligi, olasilik ajanlarinin onay esigi, deger ajaninin en dusuk beklenen getirisi
@@ -1049,44 +1056,88 @@ def _clampl(v, lo=0.2, hi=3.6):
     return min(max(v, lo), hi)
 
 
-def agent_probs(m):
-    """Doner: {ajan: {secenek: olasilik}}; verisi yetmeyen ajan sozlukte yer almaz (cekimser)."""
+def fenasi_strengths(season, avg_h, avg_a):
+    """Fenasi 1-2. adim: lig ortalamasina gore ic saha / deplasman hucum ve savunma katsayilari.
+    Katsayilar rakiplerin gucune gore duzeltilir ve az macta 1.0'a (lig ortalamasina) cekilir."""
+    K = 4.0
+    raw = defaultdict(lambda: {"hgf": 0, "hga": 0, "hp": 0, "agf": 0, "aga": 0, "ap": 0})
+    for g in season:
+        h, a = raw[g["h"]["id"]], raw[g["a"]["id"]]
+        h["hgf"] += g["hs"]
+        h["hga"] += g["as"]
+        h["hp"] += 1
+        a["agf"] += g["as"]
+        a["aga"] += g["hs"]
+        a["ap"] += 1
+    shr = lambda v, n, avg: (v + K * avg) / (n + K) / avg
+    base = {t: {"ha": shr(r["hgf"], r["hp"], avg_h), "hd": shr(r["hga"], r["hp"], avg_a),
+                "aa": shr(r["agf"], r["ap"], avg_a), "ad": shr(r["aga"], r["ap"], avg_h)} for t, r in raw.items()}
+    exp = defaultdict(lambda: {"ha": 0.0, "hd": 0.0, "aa": 0.0, "ad": 0.0})
+    for g in season:                                 # ortalama bir takim ayni rakiplere karsi ne atar / yerdi
+        H, A = g["h"]["id"], g["a"]["id"]
+        exp[H]["ha"] += avg_h * base[A]["ad"]
+        exp[H]["hd"] += avg_a * base[A]["aa"]
+        exp[A]["aa"] += avg_a * base[H]["hd"]
+        exp[A]["ad"] += avg_h * base[H]["ha"]
+    out = {}
+    for t, r in raw.items():
+        e = exp[t]
+        out[t] = {"ha": (r["hgf"] + K * avg_h) / (e["ha"] + K * avg_h), "hd": (r["hga"] + K * avg_a) / (e["hd"] + K * avg_a),
+                  "aa": (r["agf"] + K * avg_a) / (e["aa"] + K * avg_a), "ad": (r["aga"] + K * avg_h) / (e["ad"] + K * avg_h),
+                  "n": [r["hp"], r["ap"]]}
+    return out
+
+
+def fenasi_lambdas(S, avg_h, avg_a, hid, aid, by_team, lg, dt, sqh, sqa):
+    """Fenasi 2-4. adim: iki takimin beklenen golu. Doner: (ev xG, deplasman xG, dinlenme gunleri, eksik sayilari)
+    ya da veri yetersizse None."""
+    K = 4.0
+    h, a = S.get(hid), S.get(aid)
+
+    def overall(tid):                                # lig karnesi yetersizse: tum kulvarlardaki son 10 mac
+        g = by_team[tid][-10:]
+        if len(g) < 3:
+            return None
+        gf = sum(x["hs"] if x["h"]["id"] == tid else x["as"] for x in g)
+        ga = sum(x["as"] if x["h"]["id"] == tid else x["hs"] for x in g)
+        avg = (avg_h + avg_a) / 2
+        return (gf + K * avg) / (len(g) + K) / avg, (ga + K * avg) / (len(g) + K) / avg
+
+    if h and a and h["n"][0] >= 3 and a["n"][1] >= 3:
+        lh, la = avg_h * h["ha"] * a["ad"], avg_a * a["aa"] * h["hd"]
+    else:
+        if lg["nat"]:                                # milli takimlarda ortak lig yok: rakip gucu olculemez, cekimser
+            return None
+        oh, oa = overall(hid), overall(aid)
+        if not oh or not oa:
+            return None
+        lh, la = avg_h * oh[0] * oa[1], avg_a * oa[0] * oh[1]
+    if lg["id"] == "fifa.friendly":                  # hazirlik maci: ev sahibi avantaji zayif
+        lh, la = lh * 0.95, la * 1.05
+    rest = []
+    for tid in (hid, aid):
+        prev = [g["dt"] for g in by_team[tid] if g["dt"] < dt]
+        rest.append(int((dt - prev[-1]).total_seconds() // 86400) if prev else None)
+    if rest[0] is not None and rest[0] < 4:          # 4 gunden az dinlenme: kendi hucumu duser, rakibinki artar
+        lh, la = lh * 0.97, la * 1.02
+    if rest[1] is not None and rest[1] < 4:
+        la, lh = la * 0.97, lh * 1.02
+    out_n = [len((sqh or {}).get("out") or []), len((sqa or {}).get("out") or [])]
+    lh *= max(0.85, 1 - 0.04 * out_n[0]) * min(1.08, 1 + 0.015 * out_n[1])   # eksik oyuncu: kendi golu azalir,
+    la *= max(0.85, 1 - 0.04 * out_n[1]) * min(1.08, 1 + 0.015 * out_n[0])   # rakibin beklentisi biraz artar
+    return _clampl(lh), _clampl(la), rest, out_n
+
+
+def agent_probs(m, lam=None):
+    """Doner: {ajan: {secenek: olasilik}}; verisi yetmeyen ajan sozlukte yer almaz (cekimser).
+    lam verilirse her ajanin gol beklentisi (ev, deplasman) oraya yazilir."""
     out = {"st": _pvec(m["p"])}
-    _h = m["h"]; _a = m["a"]
-    _hn = _h["n"] if isinstance(_h, dict) else str(_h)
-    _an = _a["n"] if isinstance(_a, dict) else str(_a)
-    k = (norm(_hn), norm(_an))
-    ap = apf_preds.get(k)
-    if not ap:
-        rk = (k[1], k[0])
-        rap = apf_preds.get(rk)
-        if rap:
-            ap = {"w": rap.get("l"), "d": rap.get("d"), "l": rap.get("w"), "u25": rap.get("u25"),
-                  "o25": rap.get("o25"), "btts_yes": rap.get("btts_yes"), "btts_no": rap.get("btts_no")}
-    if ap:
-        try:
-            w, d, l = float(ap["w"]), float(ap["d"]), float(ap["l"])
-            sm = w + d + l
-            if sm > 0:
-                w, d, l = w / sm, d / sm, l / sm
-                mh, ma = market_lambdas(w, d, l)
-                v = _pvec(predict(mh, ma))
-                v.update({"1": w, "X": d, "2": l, "1X": w + d, "12": w + l, "X2": d + l})
-                if ap.get("o25") is not None:
-                    v["O2.5"] = float(ap["o25"])
-                    v["U2.5"] = 1 - v["O2.5"]
-                if ap.get("u25") is not None:
-                    v["U2.5"] = float(ap["u25"])
-                    v["O2.5"] = 1 - v["U2.5"]
-                if ap.get("btts_yes") is not None:
-                    v["KGV"] = float(ap["btts_yes"])
-                    v["KGY"] = 1 - v["KGV"]
-                if ap.get("btts_no") is not None:
-                    v["KGY"] = float(ap["btts_no"])
-                    v["KGV"] = 1 - v["KGY"]
-                out["apf"] = v
-        except Exception:
-            pass
+    if lam is not None:
+        lam["st"] = (m["p"]["lh"], m["p"]["la"])
+    if m.get("fn"):
+        out["fn"] = _pvec(predict(m["fn"][0], m["fn"][1]))
+        if lam is not None:
+            lam["fn"] = (m["fn"][0], m["fn"][1])
     o, ss = m["o"], m.get("ss") or {}
     # Piyasa: yalnizca gercek site orani varsa
     if m.get("src") and m["src"] != "model" and all(o.get(k) for k in ("1", "X", "2")):
@@ -1112,6 +1163,8 @@ def agent_probs(m):
                 mh = _clampl(mh * scale)
                 ma = _clampl(ma * scale)
         v = _pvec(predict(mh, ma))                     # 1X2 oranlarinin ima ettigi gol dagilimi
+        if lam is not None:
+            lam["mk"] = (mh, ma)
         v.update({"1": q[0], "X": q[1], "2": q[2], "1X": q[0] + q[1], "12": q[0] + q[2], "X2": q[1] + q[2]})
         for grp, a, b in (("ou15", "O1.5", "U1.5"), ("ou25", "O2.5", "U2.5"), ("ou35", "O3.5", "U3.5"), ("kg", "KGV", "KGY")):
             if ss.get(grp, "model") != "model" and o.get(a) and o.get(b):
@@ -1130,31 +1183,8 @@ def agent_probs(m):
         lh = _clampl(0.5 * (_wgt_avg(fh, "gf") + _wgt_avg(fa, "ga")) * 1.10)
         la = _clampl(0.5 * (_wgt_avg(fa, "gf") + _wgt_avg(fh, "ga")) * 0.92)
         out["fm"] = _pvec(predict(lh, la))
-    # Saha: ic saha / deplasman sezon karnesi (az macta lig ortalamasina cekilir)
-    sh, sa = (m.get("st") or {}).get("h") or {}, (m.get("st") or {}).get("a") or {}
-    if sh.get("p", 0) >= 3 and sa.get("p", 0) >= 3:
-        K = 2.0
-        h_prior, a_prior = LG_GOALS.get(m.get("lg", ""), _LG_DEFAULT)
-        r = lambda s, k, prior: (s[k] + K * prior) / (s["p"] + K)
-        lh = _clampl(0.5 * (r(sh, "gf", h_prior) + r(sa, "ga", h_prior)))
-        la = _clampl(0.5 * (r(sa, "gf", a_prior) + r(sh, "ga", a_prior)))
-        out["sh"] = _pvec(predict(lh, la))
-    # H2H (kafa kafaya): son H2H maclari, ustel azalma agirlikli
-    h2h = m.get("h2h") or []
-    _hval = m.get("h"); _aval = m.get("a")
-    hid_m = _hval["id"] if isinstance(_hval, dict) else _hval
-    aid_m = _aval["id"] if isinstance(_aval, dict) else _aval
-    if len(h2h) >= 3 and hid_m and aid_m:
-        h_gf = [g["hs"] if g["h"] == hid_m else g["as"] for g in h2h]
-        h_ga = [g["as"] if g["h"] == hid_m else g["hs"] for g in h2h]
-        ws = [0.78 ** i for i in range(len(h2h))]
-        wsum = sum(ws)
-        avg_hgf = sum(w * v for w, v in zip(ws, h_gf)) / wsum
-        avg_hga = sum(w * v for w, v in zip(ws, h_ga)) / wsum
-        if avg_hgf + avg_hga >= 0.5:
-            lh_h2 = _clampl(avg_hgf * 1.05)
-            la_h2 = _clampl(avg_hga * 0.97)
-            out["h2"] = _pvec(predict(lh_h2, la_h2))
+        if lam is not None:
+            lam["fm"] = (lh, la)
     return out
 
 
@@ -1179,8 +1209,10 @@ def agent_eval(m, k, typ, pv=None):
 
 
 def agent_best(m):
-    """Mac detayi icin: her ajanin bu macta en cok guvendigi secim (oran 1.30+)."""
-    pv = agent_probs(m)
+    """Her ajanin bu macta en cok guvendigi secim (oran 1.30+) ve gol beklentisi:
+    {ajan: [secenek, olasilik, ev xG, deplasman xG]}; Deger ajani icin [secenek, beklenen getiri]."""
+    lam = {}
+    pv = agent_probs(m, lam)
     ks = [k for k in AG_KEYS if m["o"].get(k) and m["o"][k] >= 1.3]
     out = {}
     if not ks:
@@ -1188,13 +1220,77 @@ def agent_best(m):
     for a in VOTE_AGENTS:
         if a in pv:
             k = max(ks, key=lambda x: pv[a][x])
-            out[a] = [k, round(pv[a][k], 3)]
+            out[a] = [k, round(pv[a][k], 3), round(lam[a][0], 2), round(lam[a][1], 2)]
     if len(pv) >= 3 and m.get("src") != "model":
         cons = lambda k: sum(v[k] for v in pv.values()) / len(pv)
         c = [k for k in ks if cons(k) >= 0.4]
         if c:
             k = max(c, key=lambda x: cons(x) * m["o"][x])
             out["vr"] = [k, round(cons(k) * m["o"][k] - 1, 3)]
+    return out
+
+
+def own_coupons(pool, base):
+    """Her analizcinin yalnizca kendi olasiliklariyla kurdugu banko / surpriz / sistem kuponu."""
+    mean = lambda xs: sum(xs) / len(xs)
+    pvs = {m["id"]: agent_probs(m) for m in pool}
+    res = {}
+    for a in AGENTS:
+        used, res[a] = set(), {}
+        for typ in ("main", "hi", "sys"):
+            cfg, c = AG_TYPES[typ], []
+            for m in pool:
+                pv = pvs[m["id"]]
+                if m["id"] in used:
+                    continue
+                if a == "vr":
+                    if m.get("src") == "model" or m["lg"] == "fifa.friendly" or len(pv) < 3:
+                        continue
+                elif a not in pv:
+                    continue
+                best = None
+                for k in AG_KEYS:
+                    o = m["o"].get(k)
+                    if not o or not cfg["lo"] <= o <= cfg["hi"]:
+                        continue
+                    if a == "vr":
+                        pr = mean([v[k] for v in pv.values()])
+                        rank = pr * o - 1
+                        ok = rank >= cfg["ev"] and pr >= {"main": 0.60, "sys": 0.46, "hi": 0.28}[typ]
+                    else:
+                        pr = pv[a][k]
+                        rank = pr * o if typ == "hi" else pr
+                        ok = pr >= cfg["need"](o)
+                    if ok and (best is None or rank > best[0]):
+                        best = (rank, pr, k, o)
+                if best:
+                    c.append(best + (m,))
+            c.sort(key=lambda x: -x[0])
+            if typ == "main":
+                sel = c[:5]
+            elif typ == "sys":
+                sel = c[:MOLLA_SYS[1]] if len(c) >= MOLLA_SYS[0] + 1 else []
+            else:
+                sel, tot = [], 1.0
+                for x in c[:7]:
+                    sel.append(x)
+                    tot *= x[3]
+                    if tot >= MOLLA_HI:
+                        break
+                if tot < MOLLA_HI:
+                    sel = []
+            used |= {x[4]["id"] for x in sel}
+            recs = [dict(base(m), k=k, o=o, p=round(pr, 3), sc=m["p"]["score"])
+                    for _, pr, k, o, m in sorted(sel, key=lambda x: x[4]["d"])]
+            res[a][typ] = {"k": MOLLA_SYS[0], "picks": recs} if typ == "sys" else recs
+    return res
+
+
+def coupon_picks(c):
+    """Bir donemin tum kuponlarindaki secimler (ortak + analizcilerin kendi kuponlari)."""
+    out = list(c["picks"]) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", [])
+    for own in (c.get("ac") or {}).values():
+        out += own.get("main", []) + own.get("hi", []) + (own.get("sys") or {}).get("picks", [])
     return out
 
 
@@ -1225,7 +1321,7 @@ def molla(matches, done_by_id, src_team, use):
     today = (NOW + timedelta(hours=5)).strftime("%Y-%m-%d")   # Askabat gunu
     # 1) bitmis maclari sonuclandir
     for c in state["coupons"].values():
-        for pk in c["picks"] + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", []):
+        for pk in coupon_picks(c):
             e = done_by_id.get(pk["id"])
             if e and "res" not in pk:
                 pk["res"] = [e["hs"], e["as"]]
@@ -1253,7 +1349,7 @@ def molla(matches, done_by_id, src_team, use):
             busted = True
             print("   MollaMyrat: guncel kuponda tutmayan mac var, yeni kupon yayinlaniyor", flush=True)
     due = not keys or busted or (day0 - datetime.strptime(keys[-1], "%Y-%m-%d")).days >= MOLLA_DAYS
-    if keys and "panel" not in state["coupons"][keys[-1]]:
+    if keys and "ac" not in state["coupons"][keys[-1]]:
         due = True                                   # ajan heyetine gecis: guncel kupon bir kez yeniden kurulur
 
     def penalty(m):
@@ -1377,7 +1473,7 @@ def molla(matches, done_by_id, src_team, use):
                    "picks": [arec(x) for x in by_date(picks)],
                    "scores": [dict(base(m), sc=m["p"]["score"], sp=round(sprob(m), 3)) for m in
                               sorted(best_sc, key=lambda m: m["d"])],
-                   "panel": {"n": len(pool), "rep": rep_}}
+                   "panel": {"n": len(pool), "rep": rep_}, "ac": own_coupons(pool, base)}
             if hi:
                 cpn["hi"] = {"picks": [arec(x) for x in by_date(hi)]}
             if len(sy) >= need + 1:
@@ -1405,10 +1501,24 @@ def molla(matches, done_by_id, src_team, use):
     state["coupons"] = {k: v for k, v in state["coupons"].items() if k >= keep}
     cache_write(MOLLA, state)
     show = keep
-    out = [dict(v, date=k) for k, v in sorted(state["coupons"].items(), reverse=True) if k >= show]
+    # eski donemlerde analizcilerin kendi kuponlari ve raporlari yayinlanmaz (dosya sismesin); son 4 donem tam
+    for i, k in enumerate(sorted(state["coupons"], reverse=True)):
+        if i >= 12:
+            state["coupons"][k].pop("ac", None)
+            state["coupons"][k].pop("panel", None)
+    cache_write(MOLLA, state)
+    out = []
+    for i, (k, v) in enumerate(sorted(state["coupons"].items(), reverse=True)):
+        if k < show:
+            continue
+        v = dict(v, date=k)
+        if i >= 4:
+            v.pop("ac", None)
+            v.pop("panel", None)
+        out.append(v)
     for c in out:
         reps = [x for rows in ((c.get("panel") or {}).get("rep") or {}).values() for x in rows]
-        for x in c["picks"] + c.get("scores", []) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", []) + reps:
+        for x in coupon_picks(c) + c.get("scores", []) + reps:
             use(x["h"])
             use(x["a"])
     return {"today": today, "coupons": out}
@@ -1785,7 +1895,7 @@ def main():
         by_team[e["h"]["id"]].append(e)
         by_team[e["a"]["id"]].append(e)
 
-    tables, lstats = {}, {}
+    tables, lstats, fstr = {}, {}, {}
     for lg in LEAGUES:
         lid = lg["id"]
         season = [e for e in done if e["lg"] == lid and e["dt"] >= SEASON_START]
@@ -1803,6 +1913,7 @@ def main():
             for t in ids:
                 use(t)
         lstats[lid] = team_stats(season)
+        fstr[lid] = fenasi_strengths(season, lstats[lid][1], lstats[lid][2])
 
     print("2/6 Oranlar (bet365 / diger saglayicilar)...", flush=True)
     odds = dict(pmap(load_odds, upcoming, "oran"))
@@ -1952,14 +2063,19 @@ def main():
                             "hs": g["hs"], "as": g["as"]})
         h2h = h2h[-6:][::-1]
         detail = m["dt"] <= NOW + timedelta(days=DETAIL_DAYS)
+        sqh, sqa = (squad(hid, lid), squad(aid, lid)) if detail else (None, None)
+        fnl = fenasi_lambdas(fstr[lid], avg_h, avg_a, hid, aid, by_team, lg, m["dt"], sqh, sqa)
         rec = {"id": m["id"], "lg": lid, "d": m["d"], "h": hid, "a": aid, "v": m["v"],
                "src": ref_name, "ou": ou_src, "ss": ss,
                "o": mk, "p": p, "f": {"h": fh, "a": fa}, "h2h": h2h,
                "st": {"h": dict(st[hid]["home"]), "a": dict(st[aid]["away"])},
-               "sq": {"h": squad(hid, lid) if detail else None, "a": squad(aid, lid) if detail else None},
+               "sq": {"h": sqh, "a": sqa},
                "pl": {"h": rosters.get((lid, hid), []), "a": rosters.get((lid, aid), [])}}
         if m.get("tr"):
             rec["tr"] = m["tr"]
+        if fnl:
+            rec["fn"] = [fnl[0], fnl[1]]
+            rec["agx"] = {"rest": fnl[2], "out": fnl[3]}
         rec["ag"] = agent_best(rec)
         matches.append(rec)
 
@@ -2011,10 +2127,12 @@ def main():
     for m in matches:
         pr_, k_, o_ = tip_of(m)
         preds[m["id"]] = {"d": m["d"], "lg": m["lg"], "sc": m["p"]["score"], "k": k_, "o": o_,
-                          "p": [m["p"]["p1"], m["p"]["px"], m["p"]["p2"]]}
+                          "p": [m["p"]["p1"], m["p"]["px"], m["p"]["p2"]],
+                          "ag": {a: v[0] for a, v in (m.get("ag") or {}).items()}}
     for m in (bb or {}).get("matches", []):
         preds[m["id"]] = {"d": m["d"], "lg": "nba", "sc": m["p"]["score"], "k": m["tip"]["k"], "o": m["tip"]["o"],
-                          "ln": m["line"], "p": [m["p"]["p1"], 0, m["p"]["p2"]]}
+                          "ln": m["line"], "p": [m["p"]["p1"], 0, m["p"]["p2"]],
+                          "ag": {a: v[0] for a, v in (m.get("ag") or {}).items()}}
     pkeep = (NOW - timedelta(days=45)).strftime("%Y-%m-%d")
     preds = {k: v for k, v in preds.items() if v["d"][:10] >= pkeep}
     cache_write(preds_path, preds)
@@ -2045,6 +2163,7 @@ def main():
 
     # ---- sitenin son 30 gunluk isabeti (futbol) ----
     acc = {"n": 0, "tip": 0, "res": 0, "sc": 0, "lg": {}}
+    agacc, agaccbb = {}, {}
     # sayac sifirlamasi: STATS_FROM gununun Askabat gece yarisindan (UTC 19:00, onceki gun) once oynananlar sayilmaz
     stats_from = datetime.strptime(STATS_FROM, "%Y-%m-%d").replace(tzinfo=timezone.utc) - timedelta(hours=5)
     since = max(NOW - timedelta(days=30), stats_from)
@@ -2062,6 +2181,12 @@ def main():
         row = acc["lg"].setdefault(e["lg"], [0, 0])
         row[0] += 1
         row[1] += int(t_ok)
+        # analizci karnesi: her ajanin mac baslamadan kaydedilen secimi sonucla karsilastirilir
+        for a_, k_ in (pv.get("ag") or {}).items():
+            if a_ in AGENTS:
+                r_ = agacc.setdefault(a_, [0, 0])
+                r_[0] += 1
+                r_[1] += int(wins(k_, hs, as_))
 
     # ---- son 30 gunluk isabet (basketbol) ----
     accbb = {"n": 0, "tip": 0, "res": 0}
@@ -2072,12 +2197,18 @@ def main():
         accbb["n"] += 1
         accbb["tip"] += int(bb_wins(pv["k"], e["hs"], e["as"], pv.get("ln", 0)))
         accbb["res"] += int((pv["p"][0] >= pv["p"][2]) == (e["hs"] > e["as"]))
+        for a_, k_ in (pv.get("ag") or {}).items():
+            if a_ in BB_AGENTS:
+                r_ = agaccbb.setdefault(a_, [0, 0])
+                r_[0] += 1
+                r_[1] += int(bb_wins(k_, e["hs"], e["as"], pv.get("ln", 0)))
 
     # ---- mac detayi (form, aralarindaki maclar, karne, kadro, oyuncular) lig dosyalarina ayrilir:
     #      acilista inen data.js kuculur, detay yalnizca mac acilinca yuklenir ----
     ddir = os.path.join(ROOT, "data", "detail")
     detail = defaultdict(dict)
     for m in matches:
+        m.pop("fn", None)
         detail[m["lg"]][m["id"]] = {k: m.pop(k) for k in ("f", "h2h", "st", "sq", "pl") if k in m}
     os.makedirs(ddir, exist_ok=True)
     for lid, rows in detail.items():
@@ -2089,7 +2220,8 @@ def main():
     data = {"updated": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), "split": 1,
             "leagues": [{"id": l["id"], "n": l["n"], "g": l["g"], "cup": l["cup"], "nat": l["nat"], "tier": l["tier"], "tsdb": bool(l["tsdb"])}
                         for l in LEAGUES],
-            "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb, "since": STATS_FROM}
+            "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb, "since": STATS_FROM,
+            "agacc": agacc, "agaccbb": agaccbb, "agents": AGENTS}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
