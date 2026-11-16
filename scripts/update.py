@@ -40,6 +40,9 @@ BB_SITE = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/"
 BB_CORE = "https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/"
 WD_SPARQL = "https://query.wikidata.org/sparql?format=json&query="
 TSDB = "https://www.thesportsdb.com/api/v1/json/123/"
+APF_BASE = "https://v3.football.api-sports.io/"
+APF_KEY = (os.getenv("API_FOOTBALL_KEY") or "").strip()
+APF_LEAGUES = {"tur.1": 203, "eng.1": 39, "esp.1": 140, "ger.1": 78, "ita.1": 135, "fra.1": 61}
 
 
 # ---- Ligler ----------------------------------------------------------------
@@ -249,6 +252,119 @@ def ts_get(path):
         except Exception:
             time.sleep(25 * (i + 1))
     return None
+
+
+def apf_get(path, ttl=3 * 3600):
+    """API-Football getter (3 saatlik agresif onbellek)."""
+    if not APF_KEY:
+        return None
+    key = re.sub(r"[^a-z0-9_.-]+", "_", path.lower())
+    cpath = os.path.join(CACHE, "apf", key + ".json")
+    c = cache_read(cpath)
+    if c and time.time() - c.get("ts", 0) < ttl:
+        return c.get("d")
+    try:
+        req = urllib.request.Request(
+            APF_BASE + path.lstrip("/"),
+            headers={"User-Agent": "Mozilla/5.0", "x-apisports-key": APF_KEY, "Accept-Encoding": "gzip"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:
+            raw = r.read()
+            if r.headers.get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            d = json.loads(raw.decode("utf-8"))
+            cache_write(cpath, {"ts": time.time(), "d": d})
+            return d
+    except Exception:
+        return (c or {}).get("d")
+
+
+def load_apf_preds(upcoming):
+    """Onumuzdeki 3 gunde, sadece 1. lig maclari icin API-Football tahminlerini yukler."""
+    out = {}
+    if not APF_KEY:
+        return out
+
+    def pct(v):
+        try:
+            if v is None:
+                return None
+            if isinstance(v, str):
+                v = v.strip().replace("%", "")
+            x = float(v)
+            if x > 1:
+                x /= 100.0
+            return min(max(x, 0.0), 1.0)
+        except Exception:
+            return None
+
+    horizon = NOW + timedelta(days=3)
+    targets = defaultdict(set)  # (YYYY-MM-DD, apf_league) -> {(home_norm, away_norm)}
+    for m in upcoming:
+        try:
+            if m["lg"] not in APF_LEAGUES or not (NOW - timedelta(hours=1) <= m["dt"] <= horizon):
+                continue
+            day = m["dt"].strftime("%Y-%m-%d")
+            targets[(day, APF_LEAGUES[m["lg"]])].add((norm(m["h"]["n"]), norm(m["a"]["n"])))
+        except Exception:
+            continue
+
+    pred_calls, pred_cap = 0, 72
+    for (day, league_id), pairs in sorted(targets.items()):
+        try:
+            fx = apf_get(f"fixtures?date={day}&league={league_id}") or {}
+            for item in fx.get("response") or []:
+                try:
+                    teams = item.get("teams") or {}
+                    hn = (teams.get("home") or {}).get("name") or ""
+                    an = (teams.get("away") or {}).get("name") or ""
+                    nk = (norm(hn), norm(an))
+                    rk = (nk[1], nk[0])
+                    if nk not in pairs and rk not in pairs:
+                        continue
+                    if pred_calls >= pred_cap:
+                        return out
+                    fid = ((item.get("fixture") or {}).get("id"))
+                    if not fid:
+                        continue
+                    pred_calls += 1
+                    pd = apf_get(f"predictions?fixture={fid}") or {}
+                    pr = ((pd.get("response") or [{}])[0].get("predictions") or {})
+                    per = pr.get("percent") or {}
+
+                    w = pct(per.get("home"))
+                    d = pct(per.get("draw"))
+                    l = pct(per.get("away"))
+                    if None in (w, d, l):
+                        continue
+                    sm = w + d + l
+                    if sm <= 0:
+                        continue
+                    w, d, l = w / sm, d / sm, l / sm
+
+                    o25 = pct(per.get("over_2.5")) or pct(per.get("over25")) or 0.5
+                    u25 = pct(per.get("under_2.5")) or pct(per.get("under25"))
+                    if u25 is None:
+                        u25 = max(0.0, min(1.0, 1 - o25))
+                    by = pct(per.get("btts_yes")) or pct(per.get("btts")) or 0.5
+                    bn = pct(per.get("btts_no"))
+                    if bn is None:
+                        bn = max(0.0, min(1.0, 1 - by))
+
+                    out[nk] = {
+                        "w": w,
+                        "d": d,
+                        "l": l,
+                        "u25": u25,
+                        "o25": o25,
+                        "btts_yes": by,
+                        "btts_no": bn,
+                    }
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return out
 
 
 def tsdb_events(lg):
@@ -882,7 +998,9 @@ def tip_of(m):
 #   fm  Form       : yalnizca son 6 macin attigi/yedigi gol ortalamasi
 #   sh  Saha       : ev sahibinin ic saha, konugun deplasman sezon karnesi
 #   vr  Deger/Risk : diger ajanlarin ortak olasiligini oranla karsilastirir (beklenen getiri) + risk suzgeci
-AGENTS = ["st", "mk", "fm", "sh", "vr"]
+AGENTS = ["st", "mk", "fm", "sh", "vr", "apf"]
+VOTE_AGENTS = [a for a in AGENTS if a != "vr"]
+apf_preds = {}
 AG_KEYS = ["1", "X", "2", "1X", "12", "X2", "O1.5", "U1.5", "O2.5", "U2.5", "O3.5", "U3.5", "KGV", "KGY"]
 # kupon turleri: oran araligi, olasilik ajanlarinin onay esigi, deger ajaninin en dusuk beklenen getirisi
 AG_TYPES = {
@@ -905,6 +1023,38 @@ def _clampl(v, lo=0.2, hi=3.6):
 def agent_probs(m):
     """Doner: {ajan: {secenek: olasilik}}; verisi yetmeyen ajan sozlukte yer almaz (cekimser)."""
     out = {"st": _pvec(m["p"])}
+    k = (norm(m["h"]["n"]), norm(m["a"]["n"]))
+    ap = apf_preds.get(k)
+    if not ap:
+        rk = (k[1], k[0])
+        rap = apf_preds.get(rk)
+        if rap:
+            ap = {"w": rap.get("l"), "d": rap.get("d"), "l": rap.get("w"), "u25": rap.get("u25"),
+                  "o25": rap.get("o25"), "btts_yes": rap.get("btts_yes"), "btts_no": rap.get("btts_no")}
+    if ap:
+        try:
+            w, d, l = float(ap["w"]), float(ap["d"]), float(ap["l"])
+            sm = w + d + l
+            if sm > 0:
+                w, d, l = w / sm, d / sm, l / sm
+                mh, ma = market_lambdas(w, d, l)
+                v = _pvec(predict(mh, ma))
+                v.update({"1": w, "X": d, "2": l, "1X": w + d, "12": w + l, "X2": d + l})
+                if ap.get("o25") is not None:
+                    v["O2.5"] = float(ap["o25"])
+                    v["U2.5"] = 1 - v["O2.5"]
+                if ap.get("u25") is not None:
+                    v["U2.5"] = float(ap["u25"])
+                    v["O2.5"] = 1 - v["U2.5"]
+                if ap.get("btts_yes") is not None:
+                    v["KGV"] = float(ap["btts_yes"])
+                    v["KGY"] = 1 - v["KGV"]
+                if ap.get("btts_no") is not None:
+                    v["KGY"] = float(ap["btts_no"])
+                    v["KGV"] = 1 - v["KGY"]
+                out["apf"] = v
+        except Exception:
+            pass
     o, ss = m["o"], m.get("ss") or {}
     # Piyasa: yalnizca gercek site orani varsa
     if m.get("src") and m["src"] != "model" and all(o.get(k) for k in ("1", "X", "2")):
@@ -938,11 +1088,11 @@ def agent_probs(m):
 
 
 def agent_eval(m, k, typ, pv=None):
-    """Bir secenegi bes ajana sorar. Doner: (onay sayisi, ortak olasilik, [[deger, onay] ya da None] x5)."""
+    """Bir secenegi ajanlara sorar. Doner: (onay sayisi, ortak olasilik, [[deger, onay] ya da None] xN)."""
     pv = pv or agent_probs(m)
     cfg, o = AG_TYPES[typ], m["o"][k]
     need, row, ps = cfg["need"](o), [], []
-    for a in AGENTS[:4]:
+    for a in VOTE_AGENTS:
         if a in pv:
             p = pv[a][k]
             ps.append(p)
@@ -964,7 +1114,7 @@ def agent_best(m):
     out = {}
     if not ks:
         return out
-    for a in AGENTS[:4]:
+    for a in VOTE_AGENTS:
         if a in pv:
             k = max(ks, key=lambda x: pv[a][x])
             out[a] = [k, round(pv[a][k], 3)]
@@ -1625,6 +1775,11 @@ def main():
     lineups = dict(pmap(load_lineup, list(need.values()), "kadro"))
     rjobs = sorted({(m["lg"], m[s]["id"]) for m in soon for s in ("h", "a")})
     rosters = dict(pmap(load_roster, rjobs, "oyuncu"))
+
+    global apf_preds
+    apf_preds = load_apf_preds(upcoming)
+    if apf_preds:
+        print(f"   API-Football: {len(apf_preds)} mac tahmini", flush=True)
 
     print("4/6 Tahminler ve analiz...", flush=True)
 
