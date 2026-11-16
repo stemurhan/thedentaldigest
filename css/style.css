@@ -614,3 +614,17 @@ button.tipx{width:100%;text-align:left;cursor:pointer}
   .tabs a.mm{color:var(--gold)}
   .tabs a.mm.on{color:var(--pri)}
 }
+
+/* ---------- MollaMyrat: yapay zeka analizleri ---------- */
+.aic{background:var(--s1);border:1px solid var(--line);border-radius:var(--r);margin-bottom:10px;overflow:hidden}
+.aic summary{display:flex;align-items:center;gap:8px;padding:12px 14px;font-weight:700;cursor:pointer;list-style:none}
+.aic summary::-webkit-details-marker{display:none}
+.aic summary::after{content:'+';margin-left:auto;color:var(--mut);font-weight:800}
+.aic[open] summary::after{content:'\2013'}
+.aic summary small{color:var(--mut);font-weight:600;font-size:11px;margin-left:auto}
+.aic summary::after{margin-left:10px}
+.aic .aib{padding-bottom:4px}
+.aic .aib .note{margin:10px 14px 6px}
+.airow{position:relative}
+.airow .aiwhy{display:block;padding:0 14px 9px;margin-top:-3px;color:var(--mut);font-size:11px}
+.airow .tipc-r:hover{background:none}

@@ -365,6 +365,7 @@
     return `<div class="pagehead"><h1>★ ${t('tipc_title')}</h1></div>${seg}
       <h2 class="dayhead">${t('m_coupons')}</h2>
       ${w.cs.map(cpn).join('') || `<div class="card empty">${t('m_none')}</div>`}
+      ${mollaAI()}
       <div class="card sec"><h2>${t('m_week')} <small class="mut num">${range(w)}</small></h2>${box(w)}</div>
       ${c0 && c0.scores && c0.scores.length ? `<div class="card tipc mc"><div class="tipc-h"><b>${t('m_scores')}</b><small>${cRange(c0)}</small></div>${c0.scores.map(x => molRow(x, true)).join('')}</div>` : ''}
       ${lw.cs.map(cpn).join('') ? `<div class="card sec"><h2>${t('m_last')} <small class="mut num">${range(lw)}</small></h2>${box(lw)}</div><details class="lastw"><summary>${t('m_last')} · ${t('m_coupons')}</summary>${lw.cs.map(cpn).join('')}</details>` : ''}
@@ -489,6 +490,59 @@
     slip = ok; LS.set('slip', slip); slipErr = '';
     toast(fmt(t('share_loaded'), { n: ok.length }));
     if (matchMedia('(max-width:860px)').matches) setTimeout(() => document.body.classList.add('slipopen'), 300);
+  }
+
+  // ---------- MollaMyrat: yapay zeka analizleri ----------
+  // Ayni model verisini farkli yontemlerle yorumlayan dort analizci; tamamen tarayicida hesaplanir.
+  const AI_DEFS = [
+    ['mdl', '🧠', 'ai_mdl', 'ai_mdl_d'],
+    ['poi', '📊', 'ai_poi', 'ai_poi_d'],
+    ['val', '💰', 'ai_val', 'ai_val_d'],
+    ['frm', '📈', 'ai_frm', 'ai_frm_d']
+  ];
+  const aiProb = pk => { const m = MATCH[pk.id]; return m && m.p ? (probOf(m, pk.k) || pk.p || 0) : (pk.p || 0); };
+  const formStr = (f, n) => { const L = RL(); return (f || []).slice(0, n || 5).map(x => L[x.r] ? L[x.r].slice(0, 1) : '').reverse().join(''); };
+  const formPts = f => (f || []).slice(0, 5).reduce((s, x) => s + (x.r === 'W' ? 3 : x.r === 'D' ? 1 : 0), 0);
+  function frmScore(pk) {
+    const m = MATCH[pk.id];
+    if (!m || !m.f) return aiProb(pk) - .5;
+    const fav = pk.k === '1' || pk.k === '1X' ? 1 : pk.k === '2' || pk.k === 'X2' ? -1 : 0;
+    if (!fav) return aiProb(pk) - .5;
+    const gd = s => (s && s.p ? (s.gf - s.ga) / s.p : 0);
+    return fav * (formPts(m.f.h) - formPts(m.f.a)) + .5 * fav * (gd(m.st.h) - gd(m.st.a));
+  }
+  function aiList(kind, picks) {
+    const arr = picks.slice();
+    if (kind === 'poi') arr.sort((a, b) => aiProb(b) - aiProb(a));
+    else if (kind === 'val') arr.sort((a, b) => aiProb(b) * b.o - aiProb(a) * a.o);
+    else if (kind === 'frm') arr.sort((a, b) => frmScore(b) - frmScore(a));
+    return arr.slice(0, 5);
+  }
+  function aiNote(kind, pk) {
+    const m = MATCH[pk.id], p = pk.p || 0;
+    if (kind === 'mdl') return fmt(t('ai_r_mdl'), { s: pk.sc[0] + '-' + pk.sc[1], p: pct(p) });
+    if (kind === 'poi' && m && m.p && m.p.lh != null) return fmt(t('ai_r_poi'), { x: m.p.lh.toFixed(2) + ' – ' + m.p.la.toFixed(2), b: pct(m.p.btts) });
+    if (kind === 'val') { const e = Math.round((p * pk.o - 1) * 100); return fmt(t('ai_r_val'), { o: pk.o.toFixed(2), e: (e >= 0 ? '+' : '') + e }); }
+    if (kind === 'frm' && m && m.f) return fmt(t('ai_r_frm'), { h: ts(m.h), f: formStr(m.f.h) || '–', a: ts(m.a), g: formStr(m.f.a) || '–' });
+    return fmt(t('ai_r_base'), { p: pct(aiProb(pk)) });
+  }
+  function mollaAI() {
+    const c = MOLLA.coupons[0];
+    if (!c || !c.picks || c.picks.length < 3) return '';
+    const lists = {}; AI_DEFS.forEach(d => { lists[d[0]] = aiList(d[0], c.picks); });
+    const votes = {}; Object.values(lists).forEach(l => l.forEach(pk => { votes[pk.id] = (votes[pk.id] || 0) + 1; }));
+    const cons = Object.keys(votes).filter(id => votes[id] >= 3).map(id => c.picks.find(x => x.id === id)).filter(Boolean)
+      .sort((a, b) => votes[b.id] - votes[a.id] || b.p - a.p);
+    const aiRow = (pk, why) => `<div class="airow">${molRow(pk)}${why ? `<small class="aiwhy">${esc(why)}</small>` : ''}</div>`;
+    let html = `<h2 class="dayhead">🤖 ${t('ai_title')} <small class="mut">${t('ai_sub')}</small></h2>`;
+    html += `<div class="card tipc mc"><div class="tipc-h"><b>🤝 ${t('ai_cons')}</b><small>${t('ai_cons_s')}</small></div>
+      ${cons.length ? cons.map(pk => aiRow(pk, '🤝 ' + fmt(t('ai_votes'), { v: votes[pk.id] }))).join('') : `<div class="empty">${t('ai_none')}</div>`}</div>`;
+    AI_DEFS.forEach(d => {
+      const [k, ic, nm, ds] = d, l = lists[k];
+      html += `<details class="aic" ${k === 'mdl' ? 'open' : ''}><summary>${ic} ${t(nm)}<small>${l.length} ${t('selections')}</small></summary>
+        <div class="aib"><p class="note">${t(ds)}</p>${l.map(pk => aiRow(pk, aiNote(k, pk))).join('')}</div></details>`;
+    });
+    return html + `<p class="note" style="margin:2px 2px 12px">${t('ai_about')}</p>`;
   }
 
   // ---------- MollaMyrat arsivi ----------
