@@ -898,7 +898,15 @@ def molla(matches, done_by_id, src_team, use):
             del state["coupons"][keys[-1]]
             keys = keys[:-1]
     day0 = datetime.strptime(today, "%Y-%m-%d")
-    due = not keys or (day0 - datetime.strptime(keys[-1], "%Y-%m-%d")).days >= MOLLA_DAYS
+    # guncel kuponda tutmayan mac varsa iki gun beklenmeden yeni kupon yayinlanir
+    # (sistem kuponu haric: 3/5 kurali tek kayibi normal sayar; bugunun kuponu zaten varsa bir daha uretilmez)
+    busted = False
+    if keys and keys[-1] != today:
+        lastc = state["coupons"][keys[-1]]
+        if any(pk.get("ok") is False for pk in lastc["picks"] + (lastc.get("hi") or {}).get("picks", [])):
+            busted = True
+            print("   MollaMyrat: guncel kuponda tutmayan mac var, yeni kupon yayinlaniyor", flush=True)
+    due = not keys or busted or (day0 - datetime.strptime(keys[-1], "%Y-%m-%d")).days >= MOLLA_DAYS
 
     def penalty(m):
         lg = LGMAP[m["lg"]]
@@ -925,13 +933,14 @@ def molla(matches, done_by_id, src_team, use):
     def rec(t, m):
         return dict(base(m), k=t[1], o=t[2], p=round(t[0], 3), sc=m["p"]["score"])
 
-    def window(key):
-        """Kuponun kapsadigi 48 saat: simdi -> ikinci gunun sonu (Askabat 24:00 = UTC 19:00)."""
-        w_end = datetime.strptime(key, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=MOLLA_DAYS) - timedelta(hours=5)
-        return [m for m in matches if NOW + timedelta(minutes=15) < pdate(m["d"]) <= w_end]
+    def window(key=None):
+        """Kuponda yeralacak maclar: onumuzdeki en fazla 48 saat icinde oynanacaklar."""
+        return [m for m in matches if NOW + timedelta(minutes=15) < pdate(m["d"]) <= NOW + timedelta(hours=48)]
 
-    def high_coupon(pool):
-        """Toplam orani en az MOLLA_HI olan kupon: olasiligi en yuksek orta oranli secimler."""
+    def high_coupon(pool, avoid=()):
+        """Toplam orani en az MOLLA_HI olan kupon: olasiligi en yuksek orta oranli secimler.
+        Ana kuponda yeralan maclari (avoid) tekrar secmez: uc kupon farkli maclardan kurulur."""
+        pool = [m for m in pool if m["id"] not in avoid]
         for lo, hi, pmin, cap in ((1.5, 3.0, 0.45, 9), (1.7, 4.5, 0.33, 8)):
             c = []
             for m in pool:
@@ -954,16 +963,18 @@ def molla(matches, done_by_id, src_team, use):
         need, n = MOLLA_SYS
         c = []
         for m in pool:
+            if m["id"] in avoid:              # ana/yuksek oran kuponundaki maclar sistem kuponuna giremez
+                continue
             opts = [x for x in options(m, 1.5, 2.8) if x[0] >= 0.48]
             if opts:
                 best = max(opts, key=lambda x: x[0])
-                c.append((m["id"] in avoid, -(best[0] + penalty(m)), best, m))
-        c.sort(key=lambda x: (x[0], x[1]))
+                c.append((-(best[0] + penalty(m)), best, m))
+        c.sort(key=lambda x: x[0])
         c = c[:n]
         if len(c) < need + 1:
             return None
-        c.sort(key=lambda x: x[3]["d"])
-        return {"k": need, "picks": [rec(t, m) for _, _, t, m in c]}
+        c.sort(key=lambda x: x[2]["d"])
+        return {"k": need, "picks": [rec(t, m) for _, t, m in c]}
 
     if due:
         until = (day0 + timedelta(days=MOLLA_DAYS - 1)).strftime("%Y-%m-%d")
@@ -1002,7 +1013,7 @@ def molla(matches, done_by_id, src_team, use):
         if "hi" not in cur or "sys" not in cur:
             pool = window(keys[-1])
             if "hi" not in cur:
-                hc = high_coupon(pool)
+                hc = high_coupon(pool, {x["id"] for x in cur["picks"]})
                 if hc:
                     cur["hi"] = hc
             if "sys" not in cur:
