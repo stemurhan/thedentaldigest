@@ -35,7 +35,9 @@ jobs:
           path: .cache
           key: bulten-cache-${{ github.run_id }}
           restore-keys: bulten-cache-
-      - name: Bulteni guncelle
+            - name: Bulteni guncelle
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
         run: python scripts/update.py
       - name: Degisiklikleri yayinla
         run: |
