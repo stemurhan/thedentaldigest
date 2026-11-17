@@ -1984,6 +1984,27 @@
   }
   const ymd = ms => new Date(ms).toISOString().slice(0, 10).replace(/-/g, '');
   let polling = false;
+  // zaman asimli istek: erisilemeyen bir kaynak canli yenilemeyi kilitlemesin
+  const tfetch = (u, ms) => { const c = new AbortController(), tm = setTimeout(() => c.abort(), ms || 9000);
+    return fetch(u, { signal: c.signal, cache: 'no-store' }).finally(() => clearTimeout(tm)); };
+  const espnAt = {};
+  // sunucu yedegi (data/live.json): ESPN'e ulasilamayan aglarda skor buradan gelir; dakika, dosyanin yasina gore ilerletilir
+  function applySrv(j) {
+    if (!j || !j.ev || !j.t) return;
+    const age = (Date.now() - Date.parse(j.t)) / 60e3;
+    if (!(age < 45)) return;
+    Object.keys(j.ev).forEach(id => {
+      if (espnAt[id] > Date.now() - 180e3) return;          // ESPN'den taze veri varsa o gecerli
+      const v = j.ev[id];
+      let c = v.c || '';
+      if (v.s === 'in' && /HALFTIME/.test(v.n || '')) c = t('ht');
+      else if (v.s === 'in' && id[0] !== 'b') {
+        const mm = /^(\d+)'$/.exec(c);
+        if (mm) { const b = +mm[1], n = b + Math.floor(age), cap = b <= 45 ? 45 : 90; c = n > cap ? cap + "+'" : n + "'"; }
+      }
+      setLive(id, { s: v.s, hs: v.hs, as: v.as, c, fin: v.s === 'post' && /FULL_TIME|FINAL/.test(v.n || ''), g: v.g || null });
+    });
+  }
   async function pollLive() {
     if (polling || (document.hidden && !notifOn())) return;
     const cs = liveCands().filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post'));
@@ -2000,14 +2021,16 @@
       const lg = isBB(m) ? 'nba' : m.lg, t0 = new Date(m.d).getTime();
       (want[lg] = want[lg] || new Set()).add(ymd(t0)).add(ymd(t0 - 6 * 3600e3));
     });
+    if (Object.keys(want).length) jobs.push(tfetch('data/live.json?t=' + Date.now(), 7000).then(r => (r.ok ? r.json() : null)).then(applySrv).catch(() => { }));
     Object.keys(want).forEach(lg => want[lg].forEach(day => {
       const path = lg === 'nba' ? 'basketball/nba' : 'soccer/' + lg;
-      jobs.push(fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${day}&limit=200`).then(r => r.json()).then(d => {
+      jobs.push(tfetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${day}&limit=200`).then(r => r.json()).then(d => {
         (d.events || []).forEach(e => {
           const st = e.status && e.status.type;
           if (!st || st.state === 'pre' || /POSTPON|CANCEL|ABANDON|SUSPEND|DELAY/.test(st.name || '')) return;
           const c = e.competitions[0].competitors, h = c.find(x => x.homeAway === 'home'), a = c.find(x => x.homeAway === 'away');
           const id = (lg === 'nba' ? 'b' : '') + e.id;
+          espnAt[id] = Date.now();
           setLive(id, { s: st.state === 'post' ? 'post' : 'in', hs: +h.score || 0, as: +a.score || 0,
             c: st.state === 'post' ? '' : /HALFTIME/.test(st.name) ? t('ht') : (lg === 'nba' ? st.shortDetail : e.status.displayClock) || '',
             fin: st.name === 'STATUS_FULL_TIME' || st.name === 'STATUS_FINAL',
@@ -2027,7 +2050,7 @@
         const url = 'https://www.thesportsdb.com/api/v1/json/123/' + (q instanceof Array
           ? `eventsround.php?id=${q[0]}&r=${q[1]}&s=${q[2]}` : 'lookupevent.php?id=' + q.slice(1));
         try {
-          const d = await fetch(url).then(r => (r.ok ? r.json() : Promise.reject(r.status)));
+          const d = await tfetch(url).then(r => (r.ok ? r.json() : Promise.reject(r.status)));
           (d.events || []).forEach(tsApply);
         } catch (e) { tsLast[k] = Date.now() + 60e3; break; }   // sinir asildi: bu turu birak, sonra dene
       }

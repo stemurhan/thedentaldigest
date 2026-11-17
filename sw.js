@@ -1,5 +1,5 @@
 // Analiz365 servis calisani: once ag, olmazsa onbellek (bulten her zaman guncel kalsin).
-const CACHE = 'analiz365-v34';
+const CACHE = 'analiz365-v35';
 const SHELL = ['./', 'index.html', 'css/style.css', 'js/config.js', 'js/i18n.js', 'js/app.js', 'img/icon.svg', 'manifest.json'];
 
 self.addEventListener('install', e => {
@@ -13,7 +13,8 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const u = new URL(req.url);
+  if (req.method !== 'GET' || u.origin !== location.origin || u.pathname.endsWith('/live.json')) return;   // canli skor onbellege alinmaz
   e.respondWith(
     fetch(req, { cache: 'no-cache' }).then(res => {
       const copy = res.clone();
