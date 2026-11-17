@@ -285,7 +285,16 @@
   }
   const pkRes = pk => pk.res || (RES[pk.id] ? [RES[pk.id].hs, RES[pk.id].as] : null);
   const pkIcon = (pk, score) => { const ok = pkOk(pk, score); if (ok === null && pk.res && pk.ok === null) return `<span class="mst wait" title="${esc(t('xk_void'))}">–</span>`; return ok === true ? '<span class="mst ok" title="✓">✓</span>' : ok === false ? '<span class="mst no" title="✗">✗</span>' : '<span class="mst wait" title="…">•</span>'; };
-  const cRange = c => (c.until && c.until !== c.date ? dayShort(c.date) + ' – ' + dayShort(c.until) : dayLabel(c.date));
+  const cDay = c => c.date.slice(0, 10);               // ayni gun ikinci kupon: 2026-11-17b
+  const cRange = c => (c.nx ? t('m_next_sub') : c.until && c.until !== cDay(c) ? dayShort(cDay(c)) + ' – ' + dayShort(c.until) : dayLabel(cDay(c)));
+  // guncel banko kupon kaybettiyse yerine hemen yedek kupon (veri betigi bir sonraki guncellemede resmilestirir)
+  const nextC = () => {
+    const c0 = MOLLA.coupons[0], nx = MOLLA.next;
+    if (!c0 || !nx || !(nx.picks || []).length || !c0.picks.some(pk => pkOk(pk) === false)) return null;
+    if (!nx.picks.every(pk => MATCH[pk.id] && future(MATCH[pk.id]))) return null;
+    return { date: 'next', nx: 1, picks: nx.picks };
+  };
+  const cByDate = d => (d === 'next' ? nextC() : MOLLA.coupons.find(x => x.date === d));
   const pkLive = pk => MATCH[pk.id] && future(MATCH[pk.id]) && MATCH[pk.id].o[pk.k];
   function weekRange(off) {
     const k = dayKey(Date.now()), p = keyParts(k), [y, m, d] = k.split('-').map(Number);
@@ -294,7 +303,7 @@
     return [f(base), f(base + 6 * 864e5)];
   }
   function weekStats(off, kind, own) {
-    const [a, b] = weekRange(off), cs = MOLLA.coupons.filter(c => c.date >= a && c.date <= b);
+    const [a, b] = weekRange(off), cs = MOLLA.coupons.filter(c => cDay(c) >= a && cDay(c) <= b);
     const r = { a, b, cs, ok: 0, no: 0, wait: 0, sok: 0, sno: 0, swait: 0 };
     cs.forEach(c => {
       kPicks(c, kind, own).forEach(x => { const ok = pkOk(x); if (ok === true) r.ok++; else if (ok === false) r.no++; else r.wait++; });
@@ -332,13 +341,13 @@
       : `<span class="to num">${pk.o.toFixed(2)}</span>`;
     const sub = score ? `${shortDate(pk.d)} ${timeOf(pk.d)} · ${lg}` : `${shortDate(pk.d)} ${timeOf(pk.d)} · ${esc(mkLabel(pk.k))} · ${t('m_pred')} ${pk.sc[0]}-${pk.sc[1]}`;
     const res = pkRes(pk);
-    return `<${tag} class="tipc-r"${href}><span class="tt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small>${sub}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}</small>${score ? '' : agChips(pk)}</span>${right}${pkIcon(pk, score)}</${tag}>`;
+    return `<${tag} class="tipc-r"${href}><span class="tt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small>${sub}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}" data-lk="${esc(pk.k)}"></span>`}</small>${score ? '' : agChips(pk)}</span>${right}${pkIcon(pk, score)}</${tag}>`;
   }
   function tipCoupon() {
-    const c = MOLLA.coupons[0];
+    const c = nextC() || MOLLA.coupons[0];
     if (!c) return '';
     const tot = c.picks.reduce((p, x) => p * x.o, 1), w = weekStats(0);
-    return `<div class="card tipc"><div class="tipc-h">${shareBtn('share-molla', `data-cdate="${c.date}"`)}<b>★ ${t('tipc_title')}</b><small>${fmt(t('tipc_sub'), { n: c.picks.length })} · ${cRange(c)}</small></div>
+    return `<div class="card tipc"><div class="tipc-h">${shareBtn('share-molla', `data-cdate="${c.date}"`)}<b>${c.nx ? '🔄 ' + t('m_next_title') : '★ ' + t('tipc_title')}</b><small>${fmt(t('tipc_sub'), { n: c.picks.length })} · ${cRange(c)}</small></div>
       ${c.picks.map(x => molRow(x)).join('')}
       <div class="tipc-f"><div class="sum"><span>${t('total_odds')}</span><b class="num">${tot.toFixed(2)}</b></div>
       <div class="sum"><span>${fmt(t('tipc_min'), { s: MIN_STAKE })}</span><b class="num" style="color:var(--pri)">${money(Math.min(MIN_STAKE * tot, MAX_WIN))}</b></div>
@@ -354,7 +363,7 @@
   const agAv = (a, bb, ic) => (bb ? `<i class="av emo">${ic}</i>` : a === 'all' ? '<i class="av a-all">★</i>' : `<i class="av a-${a}">${esc(t('ag_' + a).slice(0, 1))}</i>`);
   function akRow(pk, joint) {
     const res = pkRes(pk), tag = MATCH[pk.id] ? 'a' : 'div';
-    return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${pk.hr ? ' · ' + t(/^(IY|HF)/.test(pk.k) ? 'xk_iy_s' : 'xk_y2_s') + ' <b class="res">' + pk.hr[0] + '-' + pk.hr[1] + '</b>' : ''}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}${pk.os === 'model' && /^(IY|2Y|HF|S\d)/.test(pk.k) ? ' · <span class="srcb m">Analiz365</span>' : ''}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
+    return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${pk.hr ? ' · ' + t(/^(IY|HF)/.test(pk.k) ? 'xk_iy_s' : 'xk_y2_s') + ' <b class="res">' + pk.hr[0] + '-' + pk.hr[1] + '</b>' : ''}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}" data-lk="${esc(pk.k)}"></span>`}${pk.os === 'model' && /^(IY|2Y|HF|S\d)/.test(pk.k) ? ' · <span class="srcb m">Analiz365</span>' : ''}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
   }
   function akCard(c, mk, own, ttl) {
     const pk = kPicks(c, mk, own), joint = own === 'all', r = joint ? null : (D.agacc || {})[own];
@@ -377,6 +386,7 @@
     return `<div class="pagehead"><h1>${t('tipc_title')}</h1><small class="num">${cRange(c)}</small></div>
       <div class="aktabs" role="tablist">${TAB.map(([k, ic, h]) => `<button role="tab" aria-selected="${mk === k}" class="${mk === k ? 'on' : ''}" data-mk="${k}"><i>${ic}</i><b>${t(h)}</b></button>`).join('')}</div>
       ${per.length > 1 ? `<div class="chips akper">${per.map(x => `<button class="chip ${x === c ? 'on' : ''}" data-mp="${x.date}">${cRange(x)}</button>`).join('')}</div>` : ''}
+      ${mk === 'main' && c === MOLLA.coupons[0] && nextC() ? `<div class="akg aknx">${akCard(nextC(), 'main', 'all', '🔄 ' + t('m_next_title'))}</div><p class="note akxn">${t('m_next_note')}</p>` : ''}
       <div class="akg">${owners.map(o => akCard(c, mk, o)).join('')}</div>
       ${xs.length ? `<h2 class="dayhead akxh">🧩 ${t('xk_title')}</h2><p class="note akxn">${t('xk_note')}</p>
       <div class="akg">${xs.map(x => akCard(c, x, 'all', t('m_k_' + x))).join('')}</div>` : ''}`;
@@ -471,7 +481,7 @@
       { tot: tot.toFixed(2), stake: money(st), win: money(Math.min(st * tot, MAX_WIN)) }, slip);
   }
   function shareMolla(date, kind, own) {
-    const c0 = MOLLA.coupons.find(x => x.date === date) || MOLLA.coupons[0]; if (!c0) return;
+    const c0 = cByDate(date) || MOLLA.coupons[0]; if (!c0) return;
     const mk = ['hi', 'sys'].concat(XK).includes(kind) ? kind : 'main', pk = kPicks(c0, mk, own); if (!pk.length) return;
     const who = own && own !== 'all' ? t('ag_' + own) : t('ac_joint');
     const rows = x => ({ teams: pkName(x, 'h') + ' – ' + pkName(x, 'a'), sub: mkLabel(x.k) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: x.o.toFixed(2), mark: mark(pkOk(x)) });
@@ -654,11 +664,11 @@
         <div class="card sec"><h2>${t('m_bylg')}</h2><div class="tblwrap"><table class="tbl"><thead><tr><th class="tn">${t('m_lg')}</th><th>✓</th><th>✗</th><th>${t('m_rate')}</th></tr></thead><tbody>
           ${Object.keys(lgs).sort((a, b) => (lgs[b].ok + lgs[b].no) - (lgs[a].ok + lgs[a].no)).map(k => `<tr><td class="tn">${badge(k)}<span>${esc(ln(k))}</span></td><td style="color:var(--pri)">${lgs[k].ok}</td><td style="color:var(--red)">${lgs[k].no}</td><td class="pts">${rate(lgs[k].ok, lgs[k].no)}</td></tr>`).join('')}</tbody></table></div></div>
       </div>`;
-      html += `<p class="note">${fmt(t('m_since'), { d: dayShort(cs[cs.length - 1].date) })}</p>`;
+      html += `<p class="note">${fmt(t('m_since'), { d: dayShort(cDay(cs[cs.length - 1])) })}</p>`;
     }
     if (A.n) {
       const lgRows = Object.keys(A.lg).sort((a, b) => A.lg[b][0] - A.lg[a][0]).slice(0, 10);
-      html += `<div class="card sec"><h2>${t('m_site')}${D.since ? ` <small class="mut">${fmt(t('fin_since'), { d: dayShort(D.since) })}</small>` : ''}</h2><div class="kpis">
+      html += `<div class="card sec"><h2>${t('m_site')}${D.since ? ` <small class="mut">${fmt(t('fin_since'), { d: dayShort(D.since.length > 10 ? dayKey(D.since) : D.since) })}</small>` : ''}</h2><div class="kpis">
         <div class="kpi"><small>${t('m_n')}</small><b>${A.n}</b></div>
         <div class="kpi"><small>${t('f_tip')}</small><b style="color:var(--pri)">${pct(A.tip / A.n)}%</b></div>
         <div class="kpi"><small>${t('f_res')}</small><b>${pct(A.res / A.n)}%</b></div>
@@ -1652,15 +1662,16 @@
     const all = liveRes.concat(src).filter(r => bb || lgOk(r));
     const days = [...new Set(all.map(r => dayKey(r.d)))].sort().reverse();
     const list = all;
-    const wp = list.filter(r => r.pr && (!D.since || dayKey(r.d) >= D.since)), tipOk = wp.filter(r => wins(r.pr.k, r.hs, r.as, r.pr.ln)).length;
+    const sinceOk = r => !D.since || (D.since.length > 10 ? r.d >= D.since : dayKey(r.d) >= D.since);
+    const nSince = list.filter(sinceOk).length, wp = list.filter(r => r.pr && sinceOk(r)), tipOk = wp.filter(r => wins(r.pr.k, r.hs, r.as, r.pr.ln)).length;
     const scOk = wp.filter(r => (bb ? (r.pr.sc[0] > r.pr.sc[1]) === (r.hs > r.as) : r.pr.sc[0] === r.hs && r.pr.sc[1] === r.as)).length;
     const A = (bb ? D.accbb : D.acc) || { n: 0 };
     let html = `<div class="pagehead"><h1>${t('results')}</h1><small>${t('fin_note')}</small></div>
       ${spSeg()}
       ${bb ? '' : lgChips(new Set(D.results.map(r => r.lg)), true)}`;
     if (!list.length) return html + `<div class="card empty">${t('nomatch')}</div>`;
-    html += `<div class="card sec facc" style="margin-top:0"><h2>${t('fin_all')}${D.since ? ` <small class="mut">${fmt(t('fin_since'), { d: dayShort(D.since) })}</small>` : ''}</h2><div class="kpis">
-      <div class="kpi"><small>${t('c_played')}</small><b>${list.length}</b></div>
+    html += `<div class="card sec facc" style="margin-top:0"><h2>${t('fin_all')}${D.since ? ` <small class="mut">${fmt(t('fin_since'), { d: dayShort(D.since.length > 10 ? dayKey(D.since) : D.since) })}</small>` : ''}</h2><div class="kpis">
+      <div class="kpi"><small>${t('c_played')}</small><b>${nSince}</b></div>
       <div class="kpi"><small>${t('f_tip')}</small><b style="color:var(--pri)">${wp.length ? tipOk + '/' + wp.length : '–'}</b></div>
       <div class="kpi"><small>${t(bb ? 'f_win' : 'f_sc')}</small><b style="color:var(--gold)">${wp.length ? scOk + '/' + wp.length : '–'}</b></div>
       <div class="kpi"><small>${t('fin_30')}</small><b>${A.n ? pct(A.tip / A.n) + '%' : '–'}</b></div></div></div>`;
@@ -1887,7 +1898,7 @@
     const live = c.sels.filter(x => MATCH[x.m] && future(MATCH[x.m]) && MATCH[x.m].o[x.k]).length;
     return `<div class="card cpn sv">
       <div class="cpn-h"><b>☆ ${esc(c.name || '')}</b><span class="st ${st === 'track' ? 'pending' : st}">${t(st === 'track' ? 's_track' : st)}</span>${shareBtn('share-saved', `data-sid="${esc(c.id)}"`)}<span class="mut num" style="margin-left:auto">${shortDate(c.ts)} ${timeOf(c.ts)}</span></div>
-      ${c.sels.map(x => `<div class="row"><span class="rl">${pair(x.hi, x.ai, nm(x, 'h'), nm(x, 'a'))}<small class="mut">${esc(mkLabel(x.k, null, x.ln))} · ${shortDate(x.d)} ${timeOf(x.d)}${x.res ? ' · ' + esc(x.res) : `<span data-lv="${esc(x.m)}"></span>`}</small></span><span class="r ${x.ok === true ? 'ok' : x.ok === false ? 'no' : ''}">${(+x.o).toFixed(2)}</span></div>`).join('')}
+      ${c.sels.map(x => `<div class="row"><span class="rl">${pair(x.hi, x.ai, nm(x, 'h'), nm(x, 'a'))}<small class="mut">${esc(mkLabel(x.k, null, x.ln))} · ${shortDate(x.d)} ${timeOf(x.d)}${x.res ? ' · ' + esc(x.res) : `<span data-lv="${esc(x.m)}" data-lk="${esc(x.k)}"${x.ln != null ? ` data-ll="${x.ln}"` : ''}></span>`}</small></span><span class="r ${x.ok === true ? 'ok' : x.ok === false ? 'no' : ''}">${(+x.o).toFixed(2)}</span></div>`).join('')}
       <div class="cpn-f"><span>${t('total_odds')}: <b>${tot.toFixed(2)}</b></span><span><b style="color:var(--pri)">${ok} ✓</b> · <b style="color:var(--red)">${no} ✗</b> · ${c.sels.length - ok - no} •</span><span>${fmt(t('tipc_min'), { s: MIN_STAKE })}: <b>${money(Math.min(MIN_STAKE * tot, MAX_WIN))}</b></span></div>
       <div class="sv-a">${live ? `<button class="btn" data-act="sv-load" data-sid="${esc(c.id)}">${t('sv_play')} (${live})</button>` : ''}<button class="btn ghost" data-act="sv-del" data-sid="${esc(c.id)}">${t('sv_del')}</button></div>
     </div>`;
@@ -1940,7 +1951,8 @@
     if (box && !(flt.q || '').trim()) box.innerHTML = liveBox(box.dataset.sport);
     document.querySelectorAll('[data-lv]').forEach(el => {
       const l = LIVE[el.dataset.lv];
-      el.innerHTML = l ? ` · <b class="ls ${l.s === 'in' ? 'on' : ''}">${l.hs}-${l.as}${l.s === 'in' && l.c ? ' <i>' + esc(l.c) + '</i>' : ''}</b>` : '';
+      const k = el.dataset.lk, w = l && k && !/^(IY|2Y|HF)/.test(k) ? wins(k, l.hs, l.as, el.dataset.ll != null ? +el.dataset.ll : undefined) : null;
+      el.innerHTML = l ? ` · <b class="ls ${l.s === 'in' ? 'on' : ''}${w === true ? ' win' : w === false ? ' lose' : ''}">${l.hs}-${l.as}${l.s === 'in' && l.c ? ' <i>' + esc(l.c) + '</i>' : ''}</b>` : '';
     });
     document.querySelectorAll('[data-lvh]').forEach(el => {
       const l = LIVE[el.dataset.lvh];
@@ -1961,7 +1973,8 @@
     if (m && isFavM(m)) return true;
     if (slip.some(x => x.m === id)) return true;
     if (coupons.some(c => c.status === 'pending' && c.sels.some(x => x.m === id))) return true;
-    const c0 = MOLLA.coupons[0];
+    const c0 = MOLLA.coupons[0], nx = MOLLA.next;
+    if (nx && (nx.picks || []).some(x => x.id === id)) return true;
     return !!(c0 && ['main', 'hi', 'sys'].concat(XK).some(k => kPicks(c0, k).some(x => x.id === id)));
   }
   function setLive(id, v) {
@@ -2155,7 +2168,7 @@
     if (d.act === 'amore') { flt.alim += 24; const y = scrollY; render(); scrollTo(0, y); return; }
     if (d.act === 'lvall') { flt.lvall = !flt.lvall; return paintLive(); }
     if (d.act === 'tipadd') {
-      slip = kPicks(MOLLA.coupons.find(x => x.date === d.cdate) || MOLLA.coupons[0], d.ck, d.own).filter(pkLive).slice(0, MAX_SEL).map(x => ({ m: x.id, k: x.k })); LS.set('slip', slip); slipErr = '';
+      slip = kPicks(cByDate(d.cdate) || MOLLA.coupons[0], d.ck, d.own).filter(pkLive).slice(0, MAX_SEL).map(x => ({ m: x.id, k: x.k })); LS.set('slip', slip); slipErr = '';
       toast(t('tipc_added')); syncObs(); renderSlip();
       if (matchMedia('(max-width:860px)').matches) document.body.classList.add('slipopen');
       return;

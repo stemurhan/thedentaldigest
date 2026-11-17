@@ -92,7 +92,7 @@ HISTORY_START = "2025-08-01"   # aralarindaki maclar icin gecmis
 DAYS_AHEAD = 14                # bultende kac gun ilerisi
 DETAIL_DAYS = 8                # kadro + oyuncu istatistigi kac gun ilerisi icin
 RESULT_DAYS = 14               # sonuclar sayfasi / kupon sonuclandirma
-STATS_FROM = "2026-11-16"      # isabet istatistikleri bu gunden (Askabat gunu) itibaren sayilir; oncesi sayilmaz
+STATS_FROM = "2026-11-17T18:00Z"   # isabet istatistikleri bu andan (UTC) sonra baslayan maclarla sayilir (karne sifirlandi)
 MARGIN = 1.07                  # site oranlarindaki pay (model oranlari)
 THREADS = 12
 FINAL = {"STATUS_FULL_TIME", "STATUS_FINAL_AET", "STATUS_FINAL_PEN"}
@@ -1589,13 +1589,14 @@ def molla(matches, done_by_id, src_team, use):
     day0 = datetime.strptime(today, "%Y-%m-%d")
     # guncel kuponda tutmayan mac varsa iki gun beklenmeden yeni kupon yayinlanir
     # (sistem kuponu haric: 3/5 kurali tek kayibi normal sayar; bugunun kuponu zaten varsa bir daha uretilmez)
+    # ayni gun icinde de: kaybeden kuponun yerine hemen yenisi gelir (anahtar: gun + harf, or. 2026-11-17b)
     busted = False
-    if keys and keys[-1] != today:
+    if keys:
         lastc = state["coupons"][keys[-1]]
         if any(pk.get("ok") is False for pk in lastc["picks"] + (lastc.get("hi") or {}).get("picks", [])):
             busted = True
             print("   MollaMyrat: guncel kuponda tutmayan mac var, yeni kupon yayinlaniyor", flush=True)
-    due = not keys or busted or (day0 - datetime.strptime(keys[-1], "%Y-%m-%d")).days >= MOLLA_DAYS
+    due = not keys or busted or (day0 - datetime.strptime(keys[-1][:10], "%Y-%m-%d")).days >= MOLLA_DAYS
     if keys and "ac" not in state["coupons"][keys[-1]]:
         due = True                                   # ajan heyetine gecis: guncel kupon bir kez yeniden kurulur
 
@@ -1673,17 +1674,22 @@ def molla(matches, done_by_id, src_team, use):
 
     by_date = lambda xs: sorted(xs, key=lambda x: x[5]["d"])
 
+    def banko(pool, avoid=()):
+        """Banko: en az 4 ajanin (yoksa 3) onayladigi dusuk oranli secimler."""
+        pan = agent_panel(pool, "main", avoid)
+        got = [x for x in pan if x[0] >= 4][:6]
+        if len(got) < 3:
+            got = [x for x in pan if x[0] >= 3][:6]
+        return got if len(got) >= 3 else pan[:3]
+
     if due:
         until = (day0 + timedelta(days=MOLLA_DAYS - 1)).strftime("%Y-%m-%d")
         pool = window(today)
-        # Banko: en az 4 ajanin (yoksa 3) onayladigi dusuk oranli secimler
-        pan = agent_panel(pool, "main")
-        picks = [x for x in pan if x[0] >= 4][:6]
-        if len(picks) < 3:
-            picks = [x for x in pan if x[0] >= 3][:6]
-        if len(picks) < 3:
-            picks = pan[:3]
-        used = {x[5]["id"] for x in picks}
+        picks = banko(pool)
+        # kaybeden kuponun yerine: sitede hemen gosterilen yedek kupon gecerliyse (maclari baslamamis) aynen yayinlanir
+        res_ = [r for r in (state.get("next") or {}).get("picks", []) if pdate(r["d"]) > NOW + timedelta(minutes=10)]
+        reserve = busted and len(res_) >= 3 and len(res_) == len((state.get("next") or {}).get("picks", []))
+        used = {r["id"] for r in res_} if reserve else {x[5]["id"] for x in picks}
         # Surpriz: ajanlarin "orani degerinin altinda" buldugu yuksek oranli secimler; toplam oran en az MOLLA_HI
         pan_hi, hi = agent_panel(pool, "hi", used), None
         for minv in (3, 2, 0):
@@ -1717,7 +1723,7 @@ def molla(matches, done_by_id, src_team, use):
         best_sc = sorted(pool, key=lambda m: -(sprob(m) + penalty(m) / 3))[:5]
         if picks:
             cpn = {"v": 2, "until": until,
-                   "picks": [arec(x) for x in by_date(picks)],
+                   "picks": res_ if reserve else [arec(x) for x in by_date(picks)],
                    "scores": [dict(base(m), sc=m["p"]["score"], sp=round(sprob(m), 3)) for m in
                               sorted(best_sc, key=lambda m: m["d"])],
                    "panel": {"n": len(pool), "rep": rep_}, "ac": own_coupons(pool, base)}
@@ -1727,7 +1733,12 @@ def molla(matches, done_by_id, src_team, use):
                 cpn["sys"] = {"k": need, "picks": [arec(x) for x in by_date(sy)]}
             cpn.update(extra_coupons(pool, base))
             cpn["xk"] = 2
-            state["coupons"][today] = cpn
+            key = today
+            n_ = 0
+            while key in state["coupons"]:                # ayni gun ikinci kupon: 2026-11-17b, c ...
+                n_ += 1
+                key = today + chr(ord("a") + n_)
+            state["coupons"][key] = cpn
             print(f"   MollaMyrat ajan heyeti: {len(pool)} mac tarandi -> banko {len(picks)}, "
                   f"surpriz {len(hi or [])}, sistem {len(sy) if len(sy) >= need + 1 else 0}", flush=True)
     # 2b) guncel kuponun yaninda yuksek oranli ve sistem kuponu (bir kez uretilir, sonra degismez)
@@ -1756,6 +1767,12 @@ def molla(matches, done_by_id, src_team, use):
             if x not in cur and x in ex:             # mevcut skor kuponu korunur
                 cur[x] = ex[x]
         cur["xk"] = 2
+    # 2d) yedek banko kupon: guncel kupon kaybederse site bunu hemen gosterir, sonraki guncellemede resmi kupon olur
+    keys = sorted(state["coupons"])
+    if keys:
+        cur = state["coupons"][keys[-1]]
+        nx = banko(window(today), {x["id"] for x in cur["picks"]})
+        state["next"] = {"picks": [arec(x) for x in by_date(nx)]} if len(nx) >= 3 else None
     # 3) eski kayitlari at, kaydet
     keep = (NOW - timedelta(days=400)).strftime("%Y-%m-%d")
     state["coupons"] = {k: v for k, v in state["coupons"].items() if k >= keep}
@@ -1781,7 +1798,11 @@ def molla(matches, done_by_id, src_team, use):
         for x in coupon_picks(c) + c.get("scores", []) + reps:
             use(x["h"])
             use(x["a"])
-    return {"today": today, "coupons": out}
+    nxt = state.get("next")
+    for x in (nxt or {}).get("picks", []):
+        use(x["h"])
+        use(x["a"])
+    return {"today": today, "coupons": out, "next": nxt}
 
 
 # ---- Basketbol (NBA) -------------------------------------------------------
@@ -2453,7 +2474,8 @@ def main():
     acc = {"n": 0, "tip": 0, "res": 0, "sc": 0, "lg": {}}
     agacc, agaccbb = {}, {}
     # sayac sifirlamasi: STATS_FROM gununun Askabat gece yarisindan (UTC 19:00, onceki gun) once oynananlar sayilmaz
-    stats_from = datetime.strptime(STATS_FROM, "%Y-%m-%d").replace(tzinfo=timezone.utc) - timedelta(hours=5)
+    stats_from = (pdate(STATS_FROM) if "T" in STATS_FROM else
+                  datetime.strptime(STATS_FROM, "%Y-%m-%d").replace(tzinfo=timezone.utc) - timedelta(hours=5))
     since = max(NOW - timedelta(days=30), stats_from)
     for e in done:
         pv = preds.get(e["id"])

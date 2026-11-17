@@ -889,3 +889,7 @@ button.morebtn{cursor:pointer;width:100%}
 .lvg{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:var(--s2);font-size:13px}
 .lvg b{color:var(--pri);min-width:44px}
 .lvg.a{flex-direction:row-reverse;text-align:right}
+/* kupon satirinda canli skor: tahmin su an tutuyorsa yesil, tutmuyorsa kirmizi */
+.ls.win,.ls.on.win{color:var(--pri)}
+.ls.lose,.ls.on.lose{color:#ff6b6b}
+.aknx .akc{box-shadow:0 0 0 1px rgba(18,196,139,.45)}

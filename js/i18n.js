@@ -878,3 +878,7 @@ Object.assign(window.I18N.tk, { lv_goals: 'Gollar', lv_pen: 'penalti', lv_og: '�
 Object.assign(window.I18N.tr, { lv_nodata: 'Canlı veri yok' });
 Object.assign(window.I18N.ru, { lv_nodata: 'Нет онлайн-данных' });
 Object.assign(window.I18N.tk, { lv_nodata: 'Göni maglumat ýok' });
+/* kaybeden kuponun yerine gelen yeni kupon */
+Object.assign(window.I18N.tr, { m_next_title: 'Yeni Banko Kupon', m_next_sub: 'önceki kupon kaybetti', m_next_note: 'Önceki banko kuponda tutmayan maç oldu; ajanların ortak kararıyla hemen yeni kupon hazırlandı. Bir sonraki güncellemede kupon geçmişine işlenir.' });
+Object.assign(window.I18N.ru, { m_next_title: 'Новый надёжный купон', m_next_sub: 'прошлый купон проиграл', m_next_note: 'В прошлом купоне был проигравший матч; общим решением агентов сразу подготовлен новый купон. При следующем обновлении он попадёт в историю.' });
+Object.assign(window.I18N.tk, { m_next_title: 'Täze ygtybarly kupon', m_next_sub: 'öňki kupon utuldy', m_next_note: 'Öňki kuponda utulan oýun boldy; agentleriň umumy karary bilen derrew täze kupon taýýarlandy. Indiki täzelenmede kupon taryhyna ýazylýar.' });
