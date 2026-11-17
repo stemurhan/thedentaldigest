@@ -790,3 +790,20 @@ a.akr:hover{background:var(--s2)}
   .aktabs button b{font-size:12px}
   .akg{grid-template-columns:1fr}
 }
+
+/* ---------- v15: ilk yari pazarlari, bultende acilir oran paneli ---------- */
+button.morebtn{cursor:pointer;width:100%}
+.morebtn.on{background:var(--pri);border-color:var(--pri);color:#04261b}
+.ob.info{cursor:default;border-style:dashed}
+.ob.info:hover{border-color:var(--line)}
+.mxp{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;padding:12px 14px;background:rgba(0,0,0,.18);border-bottom:1px solid var(--line)}
+.mxg h4{margin:0 0 6px;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;font-weight:700;display:flex;gap:6px;align-items:center}
+.og.c4{grid-template-columns:repeat(4,1fr)}
+.mxf{grid-column:1 / -1;display:flex;align-items:center;gap:10px;justify-content:space-between}
+.mxf small{color:var(--mut);font-size:11px}
+.mxf .btn{width:auto;padding:8px 14px;font-size:12px;margin:0;flex:none}
+.hfg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px}
+.hfg span{display:flex;justify-content:space-between;padding:6px 9px;border-radius:8px;background:var(--s2);font-size:12px}
+.hfg small{color:var(--mut);font-weight:700}
+.hfg .top{outline:1px solid var(--pri)} .hfg .top b{color:var(--pri)}
+.xgr.agh{color:var(--mut)}

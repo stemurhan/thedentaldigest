@@ -780,13 +780,28 @@
         <div class="mtime num">${wd === true ? `<span class="md">${shortDate(m.d)}</span>` : ''}${timeOf(m.d)}</div>
         <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div>
           ${p.lh != null ? `<div class="xgr num" title="${esc(t('xg_tip'))}">xG <b>${x2(p.lh)}–${x2(p.la)}</b><span> · xGA <b>${x2(p.la)}–${x2(p.lh)}</b></span></div>` : ''}
-          ${c && c.n >= 2 ? `<div class="xgr agh">🤝 <b>${esc(mkLabel(c.k, m))}</b> · ${m.o[c.k].toFixed(2)} · ${c.n}/5</div>` : ''}</div>
+          ${c && c.n >= 2 ? `<div class="xgr agh">${t('ag_cons')}: <b>${esc(mkLabel(c.k, m))}</b> · ${m.o[c.k].toFixed(2)} · ${c.n}/5</div>` : ''}</div>
       </a>
       <div class="og c3 ms">${ob(m, '1')}${ob(m, 'X')}${ob(m, '2')}</div>
       <div class="og c2 ou">${ob(m, 'U2.5', t('under'))}${ob(m, 'O2.5', t('over'))}</div>
       <div class="og c2 kg">${ob(m, 'KGV')}${ob(m, 'KGY')}</div>
-      <a class="morebtn" href="#/mac/${m.id}" title="${t('detail')} · ${t('more')}" aria-label="${t('detail')}: ${esc(tn(m.h))} – ${esc(tn(m.a))}">+${Object.keys(m.o).length - 3}</a>
+      <button type="button" class="morebtn" data-mx="${m.id}" aria-expanded="false" title="${t('more')}" aria-label="${t('more')}: ${esc(tn(m.h))} – ${esc(tn(m.a))}">+${Object.keys(m.o).length - 3 + (m.xo ? 12 : 0)}</button>
     </div>`;
+  }
+  // ilk yari sonucu ve IY/MS: analiz amacli gosterilir (kupona eklenmez)
+  const HF_L = ['1/1', '1/X', '1/2', 'X/1', 'X/X', 'X/2', '2/1', '2/X', '2/2'];
+  const xob = (label, o) => `<span class="ob info"><small>${label}</small><b>${o ? (+o).toFixed(2) : '–'}</b></span>`;
+  function xoGroups(m, card) {
+    const x = m.xo; if (!x) return '';
+    const g = (title, src, cols, inner) => (card ? `<div class="card sec"><h2>${title} ${srcBadge(src)}</h2><div class="og c${cols}">${inner}</div></div>`
+      : `<div class="mxg"><h4>${title} ${srcBadge(src)}</h4><div class="og c${cols}">${inner}</div></div>`);
+    return g(t('iy_res'), x.s[0], 3, ['1', 'X', '2'].map((l, i) => xob(l, x.iy[i])).join(''))
+      + g(t('iy_ms'), x.s[1], 3, HF_L.map((l, i) => xob(l, x.hf[i])).join(''));
+  }
+  function mxPanel(m) {
+    const g = (title, ks, cols) => `<div class="mxg"><h4>${title}</h4><div class="og c${cols}">${ks.map(k => ob(m, k)).join('')}</div></div>`;
+    return `<div class="mxp" data-mxp="${m.id}">${xoGroups(m)}${g(t('dc'), ['1X', '12', 'X2'], 3)}${g(t('ou'), ['U1.5', 'O1.5', 'U3.5', 'O3.5'], 4)}
+      <div class="mxf"><small>${t('x_info')}</small><a class="btn ghost" href="#/mac/${m.id}">${t('mx_more')} →</a></div></div>`;
   }
 
   // ---------- analiz listesi ----------
@@ -816,10 +831,13 @@
     }).join('')}</div>`;
   }
   function agScoreStrip(bb) {
-    const A = (bb ? D.agaccbb : D.agacc) || {};
-    if (!agList(bb).some(([a]) => (A[a] || [0])[0])) return '';      // henuz sonuclanan mac yoksa gosterilmez
-    return `<div class="agks">${agList(bb).map(([a, ic]) => { const r = A[a] || [0, 0];
-      return `<div class="agk1">${agAv(a, bb, ic)}<div><b>${esc(bb ? t('agb_' + a + '_s') : t('ag_' + a))}</b><small>${esc(bb ? '' : t('ag_' + a + '_r'))}</small></div><span class="num">${r[0] ? `<b>${pct(r[1] / r[0])}%</b><small>${r[1]}/${r[0]}</small>` : '<b>–</b><small>0</small>'}</span></div>`; }).join('')}</div>`;
+    const A = (bb ? D.agaccbb : D.agacc) || {}, B = bb ? {} : (D.agbt || {});
+    const live = agList(bb).some(([a]) => (A[a] || [0])[0]);
+    if (!live && !Object.keys(B).length) return '';
+    return `<div class="agks">${agList(bb).map(([a, ic]) => { const r = A[a] || [0, 0], bt = B[a];
+      const val = r[0] ? `<b>${pct(r[1] / r[0])}%</b><small>${r[1]}/${r[0]}</small>` : bt && bt.n ? `<b>${pct(bt.hit / bt.n)}%</b><small>${t('bt_s')} · ${bt.n}</small>` : '<b>–</b><small>&nbsp;</small>';
+      return `<div class="agk1" title="${esc(t(r[0] ? 'an_karne_d' : 'bt_d'))}">${agAv(a, bb, ic)}<div><b>${esc(bb ? t('agb_' + a + '_s') : t('ag_' + a))}</b><small>${esc(bb ? '' : t('ag_' + a + '_r'))}</small></div><span class="num">${val}</span></div>`; }).join('')}</div>
+      ${!live && !bb ? `<p class="note" style="margin:-6px 2px 12px">${t('bt_d')}</p>` : ''}`;
   }
   function anCard(m) {
     const bb = m.sport === 'bb', p = m.p, c = agCons(m);
@@ -1053,6 +1071,9 @@
         ${ob(m, tp.k)}
       </div>
     </div>
+    ${m.xp ? `<div class="card sec"><h2>${t('iy_res')} <small class="mut">${t('pred_ht')}: ${p.ht[0]} - ${p.ht[1]}</small></h2>
+      ${pbar({ p1: m.xp.iy[0], px: m.xp.iy[1], p2: m.xp.iy[2] })}<div class="plabels"><span>1</span><span>X</span><span>2</span></div>
+      <div class="hfg num">${HF_L.map((l, i) => `<span class="${m.xp.hf[i] === Math.max(...m.xp.hf) ? 'top' : ''}"><small>${l}</small><b>${pct(m.xp.hf[i])}%</b></span>`).join('')}</div></div>` : ''}
     <div class="grid2">
       <div class="card sec"><h2>${t('likely_scores')}</h2><div class="scores num">${p.top.map(s => `<span>${s[0]} - ${s[1]}<small>${(s[2] * 100).toFixed(1)}%</small></span>`).join('')}</div></div>
       <div class="card sec"><h2>${t('ms')} ${srcBadge(m.src)}</h2><div class="og c3">${ob(m, '1')}${ob(m, 'X')}${ob(m, '2')}</div><p class="note">${srcNote(m)}</p></div>
@@ -1077,7 +1098,8 @@
       + grp(t('ou') + ' 1.5', ['U1.5', 'O1.5'], 2, ss.ou15)
       + grp(t('ou') + ' 3.5', ['U3.5', 'O3.5'], 2, ss.ou35)
       + grp(t('btts'), ['KGV', 'KGY'], 2, ss.kg)
-      + `<p class="note">${srcNote(m)}</p>`;
+      + xoGroups(m, true)
+      + `<p class="note">${srcNote(m)}${m.xo ? ' ' + t('x_info') : ''}</p>`;
   }
 
   function tabForm(m) {
@@ -1627,6 +1649,11 @@
     }
     if (d.sp) { flt.sp = d.sp; flt.rday = undefined; flt.alim = 24; return render(); }
     if (d.go) { flt.rday = undefined; location.hash = '#/' + d.go; return; }
+    if (d.mx) {
+      const row = b.closest('.mrow'), nx = row.nextElementSibling, open = nx && nx.classList.contains('mxp');
+      if (open) nx.remove(); else row.insertAdjacentHTML('afterend', mxPanel(MATCH[d.mx]));
+      b.setAttribute('aria-expanded', String(!open)); b.classList.toggle('on', !open); return;
+    }
     if (d.asort) { flt.asort = d.asort; flt.alim = 24; return render(); }
     if (d.mp) { flt.mp = d.mp; const y = scrollY; render(); scrollTo(0, y); return; }
     if (d.mk || d.ma) { if (d.mk) flt.mk = d.mk; if (d.ma) flt.ma = d.ma === '*' ? null : d.ma; if (d.mgo && !/^#\/mollamyrat/.test(location.hash)) { location.hash = '#/mollamyrat'; return; } const y = scrollY; render(); scrollTo(0, y); return; }

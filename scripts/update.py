@@ -835,6 +835,10 @@ def nesine_load():
                     o[f"U{sov}"], o[f"O{sov}"] = oc[1], oc[2]
                 elif mst == 89 and ok(oc.get(1)) and ok(oc.get(2)):
                     o["KGV"], o["KGY"] = oc[1], oc[2]
+                elif mst == 88 and all(ok(oc.get(i)) for i in (1, 2, 3)):
+                    o["iy"] = [oc[1], oc[2], oc[3]]              # ilk yari sonucu: 1 / X / 2
+                elif mst == 90 and all(ok(oc.get(i)) for i in range(1, 10)):
+                    o["hf"] = [oc[i] for i in range(1, 10)]      # IY/MS: 1/1 1/X 1/2 X/1 X/X X/2 2/1 2/X 2/2
             else:
                 if mst == 2 and ok(oc.get(1)) and ok(oc.get(2)):
                     o["1"], o["2"] = oc[1], oc[2]
@@ -1056,35 +1060,44 @@ def _clampl(v, lo=0.2, hi=3.6):
     return min(max(v, lo), hi)
 
 
+FN_K, FN_HALF = 4.0, 150.0     # Fenasi: lig ortalamasina cekme gucu (mac), mac agirliginin yari omru (gun)
+
+
 def fenasi_strengths(season, avg_h, avg_a):
     """Fenasi 1-2. adim: lig ortalamasina gore ic saha / deplasman hucum ve savunma katsayilari.
     Katsayilar rakiplerin gucune gore duzeltilir ve az macta 1.0'a (lig ortalamasina) cekilir."""
-    K = 4.0
-    raw = defaultdict(lambda: {"hgf": 0, "hga": 0, "hp": 0, "agf": 0, "aga": 0, "ap": 0})
-    for g in season:
+    K = FN_K
+    raw = defaultdict(lambda: {"hgf": 0.0, "hga": 0.0, "hp": 0.0, "agf": 0.0, "aga": 0.0, "ap": 0.0, "hn": 0, "an": 0})
+    ref = max((g["dt"] for g in season), default=NOW)
+    wt = {}
+    for g in season:                                 # yeni maclar daha agir: 150 gunde agirlik yariya iner
+        w = wt[g["id"]] = 0.5 ** ((ref - g["dt"]).total_seconds() / 86400 / FN_HALF)
         h, a = raw[g["h"]["id"]], raw[g["a"]["id"]]
-        h["hgf"] += g["hs"]
-        h["hga"] += g["as"]
-        h["hp"] += 1
-        a["agf"] += g["as"]
-        a["aga"] += g["hs"]
-        a["ap"] += 1
+        h["hgf"] += w * g["hs"]
+        h["hga"] += w * g["as"]
+        h["hp"] += w
+        h["hn"] += 1
+        a["agf"] += w * g["as"]
+        a["aga"] += w * g["hs"]
+        a["ap"] += w
+        a["an"] += 1
     shr = lambda v, n, avg: (v + K * avg) / (n + K) / avg
     base = {t: {"ha": shr(r["hgf"], r["hp"], avg_h), "hd": shr(r["hga"], r["hp"], avg_a),
                 "aa": shr(r["agf"], r["ap"], avg_a), "ad": shr(r["aga"], r["ap"], avg_h)} for t, r in raw.items()}
     exp = defaultdict(lambda: {"ha": 0.0, "hd": 0.0, "aa": 0.0, "ad": 0.0})
     for g in season:                                 # ortalama bir takim ayni rakiplere karsi ne atar / yerdi
         H, A = g["h"]["id"], g["a"]["id"]
-        exp[H]["ha"] += avg_h * base[A]["ad"]
-        exp[H]["hd"] += avg_a * base[A]["aa"]
-        exp[A]["aa"] += avg_a * base[H]["hd"]
-        exp[A]["ad"] += avg_h * base[H]["ha"]
+        w = wt[g["id"]]
+        exp[H]["ha"] += w * avg_h * base[A]["ad"]
+        exp[H]["hd"] += w * avg_a * base[A]["aa"]
+        exp[A]["aa"] += w * avg_a * base[H]["hd"]
+        exp[A]["ad"] += w * avg_h * base[H]["ha"]
     out = {}
     for t, r in raw.items():
         e = exp[t]
         out[t] = {"ha": (r["hgf"] + K * avg_h) / (e["ha"] + K * avg_h), "hd": (r["hga"] + K * avg_a) / (e["hd"] + K * avg_a),
                   "aa": (r["agf"] + K * avg_a) / (e["aa"] + K * avg_a), "ad": (r["aga"] + K * avg_h) / (e["ad"] + K * avg_h),
-                  "n": [r["hp"], r["ap"]]}
+                  "n": [r["hn"], r["an"]]}
     return out
 
 
@@ -1126,6 +1139,92 @@ def fenasi_lambdas(S, avg_h, avg_a, hid, aid, by_team, lg, dt, sqh, sqa):
     lh *= max(0.85, 1 - 0.04 * out_n[0]) * min(1.08, 1 + 0.015 * out_n[1])   # eksik oyuncu: kendi golu azalir,
     la *= max(0.85, 1 - 0.04 * out_n[1]) * min(1.08, 1 + 0.015 * out_n[0])   # rakibin beklentisi biraz artar
     return _clampl(lh), _clampl(la), rest, out_n
+
+
+def half_probs(lh, la, f=0.45):
+    """Ilk yari sonucu ve IY/MS olasiliklari. Gollerin %45'i ilk yarida atilir varsayimi; yarilar bagimsiz.
+    Doner: ([1, X, 2], [1/1, 1/X, 1/2, X/1, X/X, X/2, 2/1, 2/X, 2/2])."""
+    G = 6
+    h1, a1 = pois(lh * f)[:G + 1], pois(la * f)[:G + 1]
+    h2, a2 = pois(lh * (1 - f))[:G + 1], pois(la * (1 - f))[:G + 1]
+    d2 = defaultdict(float)
+    for k in range(G + 1):
+        for l in range(G + 1):
+            d2[k - l] += h2[k] * a2[l]
+    iy, hf = [0.0] * 3, [0.0] * 9
+    for i in range(G + 1):
+        for j in range(G + 1):
+            pr = h1[i] * a1[j]
+            a_ = 0 if i > j else 1 if i == j else 2
+            iy[a_] += pr
+            for dd, q in d2.items():
+                fd = i - j + dd
+                hf[a_ * 3 + (0 if fd > 0 else 1 if fd == 0 else 2)] += pr * q
+    s1, s2 = sum(iy), sum(hf)
+    return [x / s1 for x in iy], [x / s2 for x in hf]
+
+
+# analizcilerin ortak olasiliktaki agirligi; geriye donuk testte olculen Brier puanindan hesaplanir
+AG_W = {"fn": 1.0, "st": 1.0, "mk": 1.0, "fm": 1.0}
+
+
+def wmean(pv, k):
+    """Analizcilerin k secenegine verdigi olasiligin agirlikli ortalamasi."""
+    tw = sum(AG_W.get(a, 1.0) for a in pv)
+    return sum(AG_W.get(a, 1.0) * v[k] for a, v in pv.items()) / tw
+
+
+def backtest_agents(done, days=45):
+    """Geriye donuk test: son `days` gunun lig maclari, her biri yalnizca kendisinden ONCEKI maclarin verisiyle
+    tahmin edilip gercek sonucla karsilastirilir. Piyasa ajaninin gecmis oranlari olmadigi icin o test edilemez.
+    Doner: {ajan: {"n", "hit" (mac sonucu isabeti), "ou" (2.5 alt/ust isabeti), "br" (Brier, dusuk iyi)}}."""
+    res = {a: {"n": 0, "hit": 0, "ou": 0, "br": 0.0} for a in ("fn", "st", "fm")}
+    start = NOW - timedelta(days=days)
+    seen, th = defaultdict(list), defaultdict(list)
+    for e in sorted((x for x in done if x["dt"] >= SEASON_START), key=lambda x: x["dt"]):
+        lid, hid, aid = e["lg"], e["h"]["id"], e["a"]["id"]
+        lg = LGMAP[lid]
+        if e["dt"] >= start and not lg["nat"] and len(seen[lid]) >= 20:
+            st_, avg_h, avg_a = team_stats(seen[lid])
+            lam = {}
+            fl = fenasi_lambdas(fenasi_strengths(seen[lid], avg_h, avg_a), avg_h, avg_a, hid, aid, th, lg, e["dt"], None, None)
+            if fl:
+                lam["fn"] = fl[:2]
+
+            def fr(tid):
+                g5 = th[tid][-5:]
+                if not g5:
+                    return 0.5
+                pts = 0
+                for g in g5:
+                    gf, ga = (g["hs"], g["as"]) if g["h"]["id"] == tid else (g["as"], g["hs"])
+                    pts += 3 if gf > ga else 1 if gf == ga else 0
+                return pts / (3 * len(g5))
+
+            lam["st"] = model_lambdas(st_, avg_h, avg_a, hid, aid, fr(hid), fr(aid))
+            gh, ga_ = th[hid][-6:][::-1], th[aid][-6:][::-1]
+            if len(gh) >= 3 and len(ga_) >= 3:
+                def wavg(games, tid, scored):
+                    ws = [0.80 ** i for i in range(len(games))]
+                    vals = [(g["hs"] if (g["h"]["id"] == tid) == scored else g["as"]) for g in games]
+                    return sum(w * v for w, v in zip(ws, vals)) / sum(ws)
+                lam["fm"] = (_clampl(0.5 * (wavg(gh, hid, True) + wavg(ga_, aid, False)) * 1.10),
+                             _clampl(0.5 * (wavg(ga_, aid, True) + wavg(gh, hid, False)) * 0.92))
+            out = 0 if e["hs"] > e["as"] else 1 if e["hs"] == e["as"] else 2
+            for a, (lh, la) in lam.items():
+                pr = predict(lh, la)
+                ps = [pr["p1"], pr["px"], pr["p2"]]
+                r = res[a]
+                r["n"] += 1
+                r["hit"] += int(max(range(3), key=lambda i: ps[i]) == out)
+                r["ou"] += int((pr["o25"] >= 0.5) == (e["hs"] + e["as"] > 2))
+                r["br"] += sum((ps[i] - (1 if i == out else 0)) ** 2 for i in range(3))
+        seen[lid].append(e)
+        th[hid].append(e)
+        th[aid].append(e)
+    for r in res.values():
+        r["br"] = round(r["br"] / r["n"], 4) if r["n"] else None
+    return res
 
 
 def agent_probs(m, lam=None):
@@ -1200,7 +1299,7 @@ def agent_eval(m, k, typ, pv=None):
             row.append([round(p, 3), int(p >= need)])
         else:
             row.append(None)
-    cons = sum(ps) / len(ps)
+    cons = wmean(pv, k)
     # Deger/Risk: gercek site orani yoksa ya da mac ongorulemezse onay vermez
     ev = cons * o - 1
     risky = m.get("src") == "model" or m["lg"] == "fifa.friendly" or len(ps) < 3
@@ -1222,7 +1321,7 @@ def agent_best(m):
             k = max(ks, key=lambda x: pv[a][x])
             out[a] = [k, round(pv[a][k], 3), round(lam[a][0], 2), round(lam[a][1], 2)]
     if len(pv) >= 3 and m.get("src") != "model":
-        cons = lambda k: sum(v[k] for v in pv.values()) / len(pv)
+        cons = lambda k: wmean(pv, k)
         c = [k for k in ks if cons(k) >= 0.4]
         if c:
             k = max(c, key=lambda x: cons(x) * m["o"][x])
@@ -1254,7 +1353,7 @@ def own_coupons(pool, base):
                     if not o or not cfg["lo"] <= o <= cfg["hi"]:
                         continue
                     if a == "vr":
-                        pr = mean([v[k] for v in pv.values()])
+                        pr = wmean(pv, k)
                         rank = pr * o - 1
                         ok = rank >= cfg["ev"] and pr >= {"main": 0.60, "sys": 0.46, "hi": 0.28}[typ]
                     else:
@@ -1964,6 +2063,25 @@ def main():
         print(f"   API-Football: {len(apf_preds)} mac tahmini", flush=True)
 
     print("4/6 Tahminler ve analiz...", flush=True)
+    if os.getenv("ANALIZ_TUNE"):                     # gelistirme: Fenasi ayarlarini geriye donuk testle karsilastir
+        global FN_K, FN_HALF
+        for FN_K, FN_HALF in ((4, 150), (4, 9999), (8, 150), (8, 9999), (12, 9999), (6, 300), (10, 300), (16, 9999)):
+            r = backtest_agents(done)["fn"]
+            print(f"   TUNE K={FN_K} yari omur={FN_HALF}: {r['hit']}/{r['n']} = {r['hit'] / r['n']:.3f}, ust/alt {r['ou'] / r['n']:.3f}, Brier {r['br']}", flush=True)
+        sys.exit(0)
+    agbt = {}
+    try:
+        agbt = backtest_agents(done)
+        brs = [r["br"] for r in agbt.values() if r["n"] >= 100 and r["br"]]
+        if brs:
+            for a_, r in agbt.items():
+                if r["n"] >= 100 and r["br"]:
+                    AG_W[a_] = round(math.exp(-10 * (r["br"] - min(brs))), 3)
+            AG_W["mk"] = round(max(AG_W[a_] for a_ in ("fn", "st", "fm")) * 1.15, 3)   # piyasa: en iyi modelden biraz agir
+        print("   Geriye donuk test (45 gun): " + ", ".join(
+            f"{a_} {r['hit']}/{r['n']} Brier {r['br']} agirlik {AG_W[a_]}" for a_, r in agbt.items()), flush=True)
+    except Exception as ex:
+        print("   geriye donuk test atlandi:", ex, flush=True)
 
     def form_of(tid, n=6):
         out = []
@@ -2073,6 +2191,12 @@ def main():
                "pl": {"h": rosters.get((lid, hid), []), "a": rosters.get((lid, aid), [])}}
         if m.get("tr"):
             rec["tr"] = m["tr"]
+        # ilk yari sonucu ve IY/MS: Nesine orani varsa o, yoksa model
+        hp_iy, hp_hf = half_probs(p["lh"], p["la"])
+        rec["xo"] = {"iy": (nes or {}).get("iy") or [odd(x) for x in hp_iy],
+                     "hf": (nes or {}).get("hf") or [odd(x) for x in hp_hf],
+                     "s": ["Nesine" if (nes or {}).get("iy") else "model", "Nesine" if (nes or {}).get("hf") else "model"]}
+        rec["xp"] = {"iy": [round(x, 3) for x in hp_iy], "hf": [round(x, 3) for x in hp_hf]}
         if fnl:
             rec["fn"] = [fnl[0], fnl[1]]
             rec["agx"] = {"rest": fnl[2], "out": fnl[3]}
@@ -2209,7 +2333,7 @@ def main():
     detail = defaultdict(dict)
     for m in matches:
         m.pop("fn", None)
-        detail[m["lg"]][m["id"]] = {k: m.pop(k) for k in ("f", "h2h", "st", "sq", "pl") if k in m}
+        detail[m["lg"]][m["id"]] = {k: m.pop(k) for k in ("f", "h2h", "st", "sq", "pl", "xp") if k in m}
     os.makedirs(ddir, exist_ok=True)
     for lid, rows in detail.items():
         cache_write(os.path.join(ddir, lid + ".json"), rows)
@@ -2221,7 +2345,8 @@ def main():
             "leagues": [{"id": l["id"], "n": l["n"], "g": l["g"], "cup": l["cup"], "nat": l["nat"], "tier": l["tier"], "tsdb": bool(l["tsdb"])}
                         for l in LEAGUES],
             "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb, "since": STATS_FROM,
-            "agacc": agacc, "agaccbb": agaccbb, "agents": AGENTS}
+            "agacc": agacc, "agaccbb": agaccbb, "agents": AGENTS,
+            "agbt": agbt, "agw": AG_W}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
