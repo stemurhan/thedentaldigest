@@ -1927,7 +1927,10 @@ def basketball():
                               "margin": round(cm, 1), "po": round(po, 4), "model": model},
                         "tip": {"k": tp[1], "p": round(tp[0], 4), "o": tp[2], "v": tv, "ag": trow},
                         "ag": ag, "agx": {"rest": rest, "out": [n_out(hid), n_out(aid)],
-                                          "pen": [round(pen[0], 1), round(pen[1], 1)]},
+                                          "pen": [round(pen[0], 1), round(pen[1], 1)],
+                                          # Analiz sekmesi: her ajanin (sayi farki, toplam) tahmini, lig ortalamasi, toplam cizgisinin kaynagi
+                                          "est": {a_: [round(v[0], 1), round(v[1], 1)] for a_, v in est.items()},
+                                          "avg": round(avg, 1), "lsrc": alt["name"] if alt and alt.get("line") else "model"},
                         "f": {"h": fh, "a": fa}, "h2h": h2h,
                         "st": {"h": split(st[hid]["home"]), "a": split(st[aid]["away"]),
                                "ha": split(st[hid]["all"]), "aa": split(st[aid]["all"])},

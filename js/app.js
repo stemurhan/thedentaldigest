@@ -845,7 +845,7 @@
     const stats = bb
       ? stat(t('bb_exp_total'), p.total) + stat(t('bb_margin'), p.margin != null ? (p.margin >= 0 ? '+' : '') + p.margin.toFixed(1) : '–') + stat(t('over') + ' ' + m.line, p.po != null ? pct(p.po) + '%' : '–')
       : stat('xG', p.lh.toFixed(2) + ' – ' + p.la.toFixed(2)) + stat(t('over') + ' 2.5', pct(p.o25) + '%') + stat(t('btts'), pct(p.btts) + '%');
-    return `<a class="card anc" href="#/mac/${m.id}">
+    return `<a class="card anc" href="#/mac/${m.id}${bb ? '' : '/analiz'}">
       <div class="anh"><span>${badge(bb ? 'nba' : m.lg)} ${esc(bb ? 'NBA' : ln(m.lg))}</span><span class="num">${timeOf(m.d)}</span></div>
       <div class="ant"><div class="tm">${logo(m.h)}<span>${esc(ts(m.h))}</span></div><div class="sc"><small>${t('pred_score')}</small><b class="num">${p.score[0]} - ${p.score[1]}</b></div><div class="tm r"><span>${esc(ts(m.a))}</span>${logo(m.a)}</div></div>
       <div>${pbar(p)}<div class="anl3"><span>1</span>${bb ? '' : '<span>X</span>'}<span>2</span></div></div>
@@ -867,6 +867,430 @@
     return html + (more > 0 ? `<button class="btn ghost more" data-act="amore">${fmt(t('show_more'), { n: more })}</button>` : '');
   }
 
+  // ---------- mac detay: Analiz sekmesi — her ajan hangi veriyle, nasil hesapladi ----------
+  // Ajanlarin olasiliklari tarayicida, veri betigiyle (scripts/update.py) ayni formullerle yeniden hesaplanir;
+  // boylece her tahminin hangi veriden ve hangi adimlarla geldigi sayfada acikca gosterilir.
+  const AX_KEYS = ['1', 'X', '2', '1X', '12', 'X2', 'O1.5', 'U1.5', 'O2.5', 'U2.5', 'O3.5', 'U3.5', 'KGV', 'KGY'];
+  const AX_VOTE = ['fn', 'st', 'mk', 'fm'];
+  const AX_IC = { fn: '🧮', st: '📊', mk: '💹', fm: '📈', vr: '⚖️' };
+  const f2 = v => (v == null || isNaN(v) ? '–' : (+v).toFixed(2));
+  const p1d = v => (v * 100).toFixed(1);
+  const axPois = l => { const r = []; let f = 1; for (let k = 0; k <= 8; k++) { if (k) f *= k; r.push(Math.exp(-l) * Math.pow(l, k) / f); } return r; };
+  function axPredict(lh, la) {                       // Poisson + Dixon-Coles (rho -0.10), update.py predict()
+    const ph = axPois(lh), pa = axPois(la), rho = -0.10, M = [];
+    let tot = 0;
+    for (let i = 0; i <= 8; i++) {
+      M.push([]);
+      for (let j = 0; j <= 8; j++) {
+        let v = ph[i] * pa[j];
+        if (i === 0 && j === 0) v *= 1 - lh * la * rho; else if (i === 1 && j === 0) v *= 1 + la * rho;
+        else if (i === 0 && j === 1) v *= 1 + lh * rho; else if (i === 1 && j === 1) v *= 1 - rho;
+        M[i].push(v); tot += v;
+      }
+    }
+    let p1 = 0, px = 0, o15 = 0, o25 = 0, o35 = 0, btts = 0; const sc = [];
+    for (let i = 0; i <= 8; i++) for (let j = 0; j <= 8; j++) {
+      const v = M[i][j] / tot;
+      if (i > j) p1 += v; else if (i === j) px += v;
+      if (i + j > 1) o15 += v; if (i + j > 2) o25 += v; if (i + j > 3) o35 += v;
+      if (i && j) btts += v;
+      if (i < 6 && j < 6) sc.push([i, j, v]);
+    }
+    sc.sort((a, b) => b[2] - a[2]);
+    return { lh, la, p1, px, p2: 1 - p1 - px, o15, o25, o35, btts, top: sc.slice(0, 3) };
+  }
+  const axVec = p => ({ '1': p.p1, X: p.px, '2': p.p2, '1X': p.p1 + p.px, '12': p.p1 + p.p2, X2: p.px + p.p2,
+    'O1.5': p.o15, 'U1.5': 1 - p.o15, 'O2.5': p.o25, 'U2.5': 1 - p.o25, 'O3.5': p.o35, 'U3.5': 1 - p.o35, KGV: p.btts, KGY: 1 - p.btts });
+  let AX_GRID = null;
+  function axMarketLam(q1, qx, q2) {                 // 1-X-2 olasiliklarina en iyi uyan gol beklentisi (market_lambdas)
+    if (!AX_GRID) {
+      const G = [], P = [];
+      for (let a = 0; a < 72; a++) { G.push(Math.round((0.15 + 0.05 * a) * 100) / 100); P.push(axPois(G[a])); }
+      AX_GRID = [];
+      for (let a = 0; a < 72; a++) for (let b = 0; b < 72; b++) {
+        let w = 0, d = 0, l = 0;
+        for (let i = 0; i <= 8; i++) for (let j = 0; j <= 8; j++) { const v = P[a][i] * P[b][j]; if (i > j) w += v; else if (i === j) d += v; else l += v; }
+        const s = w + d + l; AX_GRID.push([G[a], G[b], w / s, d / s, l / s]);
+      }
+    }
+    let best = null, be = 9;
+    AX_GRID.forEach(([a, b, w, d, l]) => { const e = (w - q1) ** 2 + (d - qx) ** 2 + (l - q2) ** 2; if (e < be) { be = e; best = [a, b]; } });
+    return best;
+  }
+  const axW = (l, k) => { let s = 0, w = 0; l.forEach((x, i) => { const q = Math.pow(0.8, i); s += q * x[k]; w += q; }); return w ? s / w : 0; };
+  const axClamp = v => Math.min(Math.max(v, 0.2), 3.6);
+  const axPts = f => (f || []).slice(0, 5).reduce((s, x) => s + (x.r === 'W' ? 3 : x.r === 'D' ? 1 : 0), 0);
+  const axFs = f => { const L = RL(); return (f || []).slice(0, 6).map(x => L[x.r] ? L[x.r].slice(0, 1) : '').reverse().join('-'); };
+
+  function axModel(m) {
+    const ag = m.ag || {}, o = m.o || {}, ss = m.ss || {}, A = {};
+    A.st = { lam: [m.p.lh, m.p.la], p: Object.assign({}, m.p, { top: (m.p.top || []).slice(0, 3) }) };
+    if (ag.fn && ag.fn[2] != null) A.fn = { lam: [ag.fn[2], ag.fn[3]], p: axPredict(ag.fn[2], ag.fn[3]) };
+    const real = !!(m.src && m.src !== 'model' && o['1'] && o.X && o['2']);
+    if (real) {
+      const inv = [1 / o['1'], 1 / o.X, 1 / o['2']], s = inv[0] + inv[1] + inv[2], q = inv.map(x => x / s);
+      const raw = axMarketLam(q[0], q[1], q[2]), lam = ag.mk && ag.mk[2] != null ? [ag.mk[2], ag.mk[3]] : raw;
+      const p = axPredict(lam[0], lam[1]), v = axVec(p), grp = [];
+      Object.assign(v, { '1': q[0], X: q[1], '2': q[2], '1X': q[0] + q[1], '12': q[0] + q[2], X2: q[1] + q[2] });
+      [['ou15', 'O1.5', 'U1.5'], ['ou25', 'O2.5', 'U2.5'], ['ou35', 'O3.5', 'U3.5'], ['kg', 'KGV', 'KGY']].forEach(([g, a, b]) => {
+        if ((ss[g] || 'model') !== 'model' && o[a] && o[b]) { const ia = 1 / o[a], ib = 1 / o[b]; v[a] = ia / (ia + ib); v[b] = ib / (ia + ib); grp.push({ g, a, b, src: ss[g] }); }
+      });
+      A.mk = { lam, raw, p, v, q, inv, sum: s, grp };
+    }
+    const fh = (m.f || {}).h || [], fa = (m.f || {}).a || [];
+    if (fh.length >= 3 && fa.length >= 3) {
+      const w = { hgf: axW(fh, 'gf'), hga: axW(fh, 'ga'), agf: axW(fa, 'gf'), aga: axW(fa, 'ga') };
+      const lh = axClamp(0.5 * (w.hgf + w.aga) * 1.10), la = axClamp(0.5 * (w.agf + w.hga) * 0.92);
+      A.fm = { lam: [lh, la], p: axPredict(lh, la), w };
+    }
+    Object.keys(A).forEach(a => { if (!A[a].v) A[a].v = axVec(A[a].p); });
+    const ks = AX_KEYS.filter(k => o[k] && o[k] >= 1.3), voters = AX_VOTE.filter(a => A[a]);
+    const cons = k => voters.reduce((s, a) => s + A[a].v[k], 0) / (voters.length || 1);
+    voters.forEach(a => { const x = A[a]; x.k = ag[a] && o[ag[a][0]] ? ag[a][0] : ks.slice().sort((p, q) => x.v[q] - x.v[p])[0]; });
+    let vr = null;
+    const risky = { src: m.src === 'model', fr: m.lg === 'fifa.friendly', few: voters.length < 3 };
+    if (voters.length >= 3 && m.src !== 'model' && ks.length) {
+      const rows = ks.map(k => ({ k, c: cons(k), o: o[k], ev: cons(k) * o[k] - 1 })).sort((a, b) => b.ev - a.ev);
+      const ok = rows.filter(r => r.c >= 0.4), k = ag.vr && o[ag.vr[0]] ? ag.vr[0] : (ok[0] || {}).k;
+      if (k) vr = { rows: ok, k, r: rows.find(r => r.k === k) };
+    }
+    return { A, voters, cons, ks, vr, real, risky };
+  }
+
+  const axKType = k => (/^[OU]/.test(k) ? 'ou' : /^KG/.test(k) ? 'kg' : 'ms');
+  function axConc(m, x, k) {                          // her ajanin yorumunun ortak sonuc kismi
+    const H = ts(m.h), Aw = ts(m.a), p = x.v[k], tot = x.lam[0] + x.lam[1];
+    let s = fmt(t('ax_conc'), { h: H, x: f2(x.lam[0]), a: Aw, y: f2(x.lam[1]) }) + ' ';
+    const ty = axKType(k);
+    if (ty === 'ou') s += fmt(t('ax_k_ou'), { s: f2(tot), k: mkLabel(k, m), p: pct(p) });
+    else if (ty === 'kg') s += fmt(t('ax_k_kg'), { b: pct(x.v.KGV), k: mkLabel(k, m), p: pct(p) });
+    else s += fmt(t('ax_k_ms'), { k: mkLabel(k, m), p: pct(p), a: pct(x.v['1']), b: pct(x.v.X), c: pct(x.v['2']) });
+    if (p < .55) s += ' ' + t('ax_low');
+    return s;
+  }
+  const axRec = r => (r && r.p ? `${r.p} ${t('ax_mp')} · ${r.w}-${r.d}-${r.l} · ${r.gf}:${r.ga} <small class="mut">(${t('ax_pg')} ${f2(r.gf / r.p)} / ${f2(r.ga / r.p)})</small>` : '–');
+  function axCard(m, a, x, o) {
+    const pk = o.pk, H = ts(m.h), Aw = ts(m.a);
+    const res = x && x.p ? `<div class="axres"><div class="axr1"><small>${t('ax_res')}</small><b>${esc(mkLabel(pk, m))}</b><span class="mut">${t('xg')} ${f2(x.lam[0])} – ${f2(x.lam[1])} · ${t('ax_likely')} ${x.p.top[0][0]}-${x.p.top[0][1]} (%${p1d(x.p.top[0][2])})</span></div>${ob(m, pk)}</div>
+      <div class="axbar">${pbar(x.p)}<div class="plabels"><span>1 · ${esc(H)}</span><span>X</span><span>2 · ${esc(Aw)}</span></div></div>`
+      : o.res || '';
+    const bb = !!o.bb, av = agAv(a, bb, bb ? BBX_IC[a] : AX_IC[a]);
+    return `<div class="card sec axag" id="ax-${a}">
+      <div class="axh">${av}<div class="axn"><b>${esc(agName(a, bb))} <span class="mut">· ${esc(t(bb ? 'agb_' + a + '_s' : 'ag_' + a + '_r'))}</span></b><small>${esc(t((bb ? 'axb_m_' : 'ax_m_') + a))}</small></div>
+        ${pk ? `<span class="axpk"><small>${t('ax_pick')}</small><b>${esc(shortLab(pk, m))}</b><i class="num">${o.pv}</i></span>` : `<span class="axpk na"><b>–</b><i>${t('ag_na')}</i></span>`}</div>
+      <h3 class="axs">🗂 ${t('ax_data')}</h3>
+      <dl class="axdl">${o.data.map(r => `<div><dt>${r[0]}</dt><dd>${r[1]}${r[2] ? ` <span class="srcb${r[2] === 'Analiz365' ? ' m' : ''}">${esc(r[2])}</span>` : ''}</dd></div>`).join('')}</dl>
+      ${o.extra || ''}
+      <h3 class="axs">🧮 ${t('ax_calc')}</h3>
+      <ol class="axol">${o.steps.map(s => `<li>${s}</li>`).join('')}</ol>
+      <h3 class="axs">💬 ${t('ax_say')}</h3>
+      <blockquote class="axq">${av}<p>${esc(o.say)}</p></blockquote>
+      ${res}
+    </div>`;
+  }
+  function axVerdict(m, X) {
+    const A = X.A, out = [], H = ts(m.h), Aw = ts(m.a), c = agCons(m), nm = a => t('ag_' + a);
+    const q = ['1', 'X', '2'].map(k => X.cons(k));
+    if (Math.abs(q[0] - q[2]) >= .12) out.push(fmt(t('ax_v_fav'), { t: q[0] > q[2] ? H : Aw, a: pct(q[0]), b: pct(q[1]), c: pct(q[2]) }));
+    else out.push(fmt(t('ax_v_even'), { a: pct(q[0]), b: pct(q[1]), c: pct(q[2]) }));
+    const tots = X.voters.map(a => A[a].lam[0] + A[a].lam[1]), avg = tots.reduce((s, v) => s + v, 0) / tots.length;
+    const o25 = X.cons('O2.5');
+    out.push(fmt(t(o25 >= .5 ? 'ax_v_goal_hi' : 'ax_v_goal_lo'), { lo: f2(Math.min(...tots)), hi: f2(Math.max(...tots)), x: f2(avg), p: pct(o25 >= .5 ? o25 : 1 - o25), b: pct(X.cons('KGV')) }));
+    if (c) {
+      const agree = X.voters.filter(a => A[a].k === c.k), diff = X.voters.filter(a => A[a].k && A[a].k !== c.k);
+      if (agree.length >= 2) out.push(fmt(t('ax_v_agree'), { n: agree.map(nm).join(', '), k: mkLabel(c.k, m), p: pct(X.cons(c.k)) }));
+      diff.forEach(a => out.push(fmt(t('ax_v_diff'), { n: nm(a), k: mkLabel(A[a].k, m), p: pct(A[a].v[A[a].k]), w: t('ax_why_' + a) })));
+    }
+    if (X.vr) { const r = X.vr.r; out.push(fmt(t(r.ev >= 0 ? 'ax_v_val_p' : 'ax_v_val_n'), { n: nm('vr'), k: mkLabel(r.k, m), c: pct(r.c), o: r.o.toFixed(2), e: (r.ev >= 0 ? '+' : '') + Math.round(r.ev * 100) })); }
+    else out.push(fmt(t('ax_v_val_x'), { n: nm('vr') }));
+    return out;
+  }
+
+  function tabAnalysis(m) {
+    const X = axModel(m), A = X.A, H = ts(m.h), Aw = ts(m.a), o = m.o, ag = m.ag || {};
+    if (!X.voters.length) return `<div class="card empty">${t('ax_none')}</div>`;
+    const sh = m.st.h || {}, sa = m.st.a || {}, fh = m.f.h || [], fa = m.f.a || [], x0 = m.agx || {};
+    const outN = [(m.sq.h && m.sq.h.out) || [], (m.sq.a && m.sq.a.out) || []];
+    const nOut = x0.out || [outN[0].length, outN[1].length];
+    const rest = x0.rest || [null, null];
+    const tb = (D.tables || {})[m.lg], rk = id => (tb ? tb.all.findIndex(r => r.t === id) + 1 : 0), all = id => (tb ? tb.all.find(r => r.t === id) : null);
+    const lgo = LG[m.lg] || {}, dataSrc = lgo.tsdb ? 'TheSportsDB' : 'ESPN', c = agCons(m);
+    const upd = D.updated ? shortDate(D.updated) + ' ' + timeOf(D.updated) : '–';
+    const pv = a => (A[a] && A[a].k ? '%' + pct(A[a].v[A[a].k]) : '');
+
+    // 1) ozet karar
+    let html = `<div class="card sec axv"><h2>🔎 ${t('ax_title')}</h2><p class="note" style="margin:-6px 0 12px">${t('ax_intro')}</p>
+      ${c ? `<div class="axverd"><i class="av a-all">★</i><div><small>${t('ag_cons')}</small><b>${esc(mkLabel(c.k, m))}</b><span class="mut">${fmt(t('ag_votes'), { v: c.n })} · ${t('ax_avgp')} %${pct(X.cons(c.k))}</span></div>${ob(m, c.k)}</div>` : ''}
+      <ul class="cmt axcmt">${axVerdict(m, X).map(s => `<li>${esc(s)}</li>`).join('')}</ul>
+      <div class="axsrc">
+        <span>📊 ${t('ax_s_odds')}: <b>${esc(srcName(m.src))}</b></span>
+        <span>📅 ${t('ax_s_form')}: <b>${fh.length} + ${fa.length}</b></span>
+        <span>🏟️ ${t('ax_s_season')}: <b>${sh.p || 0} + ${sa.p || 0}</b></span>
+        <span>🩹 ${t('ax_s_out')}: <b>${nOut[0]} – ${nOut[1]}</b></span>
+        ${rest[0] != null ? `<span>🛌 ${t('ax_s_rest')}: <b>${rest[0]} – ${rest[1] != null ? rest[1] : '–'} ${t('ax_days')}</b></span>` : ''}
+        <span>🕒 ${t('ax_s_upd')}: <b>${upd}</b></span>
+      </div></div>`;
+
+    // 2) yan yana karsilastirma
+    const row = a => { const x = A[a], v = x.v, mx = Math.max(v['1'], v.X, v['2']), cl = k => (v[k] === mx ? ' class="axhi"' : '');
+      return `<tr><td class="tn"><button type="button" class="axj" data-axj="${a}">${agAv(a, false, AX_IC[a])}<span>${esc(t('ag_' + a))}</span></button></td><td class="num">${f2(x.lam[0])}–${f2(x.lam[1])}</td><td${cl('1')}>${pct(v['1'])}</td><td${cl('X')}>${pct(v.X)}</td><td${cl('2')}>${pct(v['2'])}</td><td>${pct(v['O2.5'])}</td><td>${pct(v.KGV)}</td><td class="tn axk${c && x.k === c.k ? ' agr' : ''}"><b>${esc(shortLab(x.k, m))}</b> <small class="mut">%${pct(v[x.k])}</small></td></tr>`; };
+    const lamAvg = i => X.voters.reduce((s, a) => s + A[a].lam[i], 0) / X.voters.length;
+    html += `<div class="card sec"><h2>⚖️ ${t('ax_cmp')}</h2><p class="note" style="margin:-6px 0 10px">${t('ax_cmp_d')}</p>
+      <div class="tblwrap"><table class="tbl axt"><thead><tr><th class="tn">${t('an_analyst')}</th><th>${t('xg')}</th><th>1 %</th><th>X %</th><th>2 %</th><th>${t('over')} 2.5</th><th>${t('kg_s')} ${t('yes')}</th><th class="tn">${t('ax_pick')}</th></tr></thead><tbody>
+      ${X.voters.map(row).join('')}
+      <tr class="axavg"><td class="tn"><i class="av a-all">★</i><span>${t('ax_avg')}</span></td><td class="num">${f2(lamAvg(0))}–${f2(lamAvg(1))}</td><td>${pct(X.cons('1'))}</td><td>${pct(X.cons('X'))}</td><td>${pct(X.cons('2'))}</td><td>${pct(X.cons('O2.5'))}</td><td>${pct(X.cons('KGV'))}</td><td class="tn axk">${c ? `<b>${esc(shortLab(c.k, m))}</b> <small class="mut">${c.n}/5</small>` : '–'}</td></tr>
+      </tbody></table></div>
+      ${X.vr ? `<p class="note">${agAv('vr', false)} <b style="color:var(--tx)">${esc(t('ag_vr'))}:</b> ${esc(mkLabel(X.vr.k, m))} · ${t('ag_ev')} ${(X.vr.r.ev >= 0 ? '+' : '') + Math.round(X.vr.r.ev * 100)}%</p>` : ''}</div>`;
+
+    html += `<h2 class="dayhead">🤖 ${t('ax_agents')} <small class="mut">${t('ax_agents_d')}</small></h2>`;
+
+    // 3a) Fenasi
+    if (A.fn) {
+      const x = A.fn, st = [], rh = rest[0], ra = rest[1];
+      st.push(t('ax_fn_1'), t('ax_fn_2'));
+      if ((rh != null && rh < 4) || (ra != null && ra < 4)) st.push(fmt(t('ax_fn_rest_y'), { t: esc([rh != null && rh < 4 ? H : null, ra != null && ra < 4 ? Aw : null].filter(Boolean).join(', ')) }));
+      else st.push(t('ax_fn_rest_n'));
+      if (nOut[0] || nOut[1]) {
+        const mh = Math.max(0.85, 1 - 0.04 * nOut[0]) * Math.min(1.08, 1 + 0.015 * nOut[1]), ma = Math.max(0.85, 1 - 0.04 * nOut[1]) * Math.min(1.08, 1 + 0.015 * nOut[0]);
+        st.push(fmt(t('ax_fn_out_y'), { h: esc(H), n: nOut[0], a: esc(Aw), k: nOut[1], x: mh.toFixed(3), y: ma.toFixed(3) }));
+      } else st.push(t('ax_fn_out_n'));
+      st.push(fmt(t('ax_res_xg'), { h: esc(H), x: f2(x.lam[0]), a: esc(Aw), y: f2(x.lam[1]), s: f2(x.lam[0] + x.lam[1]) }));
+      const names = l => (l.length ? ' <small class="mut">(' + l.slice(0, 4).map(p => esc(p.n)).join(', ') + (l.length > 4 ? '…' : '') + ')</small>' : '');
+      const data = [
+        [fmt(t('ax_d_home'), { t: esc(H) }), axRec(sh), t('ax_tag_season')],
+        [fmt(t('ax_d_away'), { t: esc(Aw) }), axRec(sa), t('ax_tag_season')]];
+      if (rk(m.h) && rk(m.a)) data.push([t('ax_d_rank'), `${esc(H)} <b>${rk(m.h)}.</b> · ${esc(Aw)} <b>${rk(m.a)}.</b>`, t('standings')]);
+      if (rest[0] != null) data.push([t('ax_d_rest'), `${esc(H)} <b>${rest[0]}</b> · ${esc(Aw)} <b>${rest[1] != null ? rest[1] : '–'}</b> ${t('ax_days')}`, t('ax_tag_fix')]);
+      data.push([t('ax_d_out'), `${esc(H)} <b>${nOut[0]}</b>${names(outN[0])} · ${esc(Aw)} <b>${nOut[1]}</b>${names(outN[1])}`, t('lineups')]);
+      const say = (sh.p && sa.p ? fmt(t('ax_fn_say'), { h: H, hg: f2(sh.gf / sh.p), hc: f2(sh.ga / sh.p), a: Aw, ag: f2(sa.gf / sa.p), ac: f2(sa.ga / sa.p) }) + ' ' : '') + axConc(m, x, x.k);
+      html += axCard(m, 'fn', x, { pk: x.k, pv: pv('fn'), data, steps: st, say });
+    }
+
+    // 3b) Behcet (istatistik modeli)
+    if (A.st) {
+      const x = A.st, frh = fh.length ? axPts(fh) / (3 * Math.min(5, fh.length)) : .5, fra = fa.length ? axPts(fa) / (3 * Math.min(5, fa.length)) : .5;
+      const fmh = 1 + 0.12 * (frh - .5) - 0.06 * (fra - .5), fma = 1 + 0.12 * (fra - .5) - 0.06 * (frh - .5);
+      const isB = m.src === 'bet365', w = !X.real ? 0 : isB ? (lgo.cup ? .75 : .5) : (lgo.cup ? .9 : .6);
+      const st = [t('ax_st_1'), fmt(t('ax_st_2'), { h: esc(H), x: fmh.toFixed(3), a: esc(Aw), y: fma.toFixed(3) })];
+      if (w && A.mk) {
+        const mr = A.mk.raw, sx = (x.lam[0] - w * mr[0]) / (1 - w), sy = (x.lam[1] - w * mr[1]) / (1 - w);
+        st.push(fmt(t('ax_st_3'), { x: f2(Math.max(.2, sx)), y: f2(Math.max(.2, sy)), s: esc(srcName(m.src)), mx: f2(mr[0]), my: f2(mr[1]), ws: Math.round((1 - w) * 100), wm: Math.round(w * 100) }));
+      } else st.push(t('ax_st_3n'));
+      st.push(fmt(t('ax_res_xg'), { h: esc(H), x: f2(x.lam[0]), a: esc(Aw), y: f2(x.lam[1]), s: f2(x.lam[0] + x.lam[1]) }));
+      const ah = all(m.h), aa = all(m.a);
+      const data = [
+        [fmt(t('ax_d_home'), { t: esc(H) }), axRec(sh), t('ax_tag_season')],
+        [fmt(t('ax_d_away'), { t: esc(Aw) }), axRec(sa), t('ax_tag_season')]];
+      if (ah && aa) data.push([t('ax_d_all'), `${esc(H)} ${ah.w}-${ah.d}-${ah.l} (${ah.gf}:${ah.ga}) · ${esc(Aw)} ${aa.w}-${aa.d}-${aa.l} (${aa.gf}:${aa.ga})`, t('standings')]);
+      data.push([t('ax_d_form5'), `${esc(H)} <b>${axPts(fh)}</b>/${3 * Math.min(5, fh.length)} · ${esc(Aw)} <b>${axPts(fa)}</b>/${3 * Math.min(5, fa.length)}`, t('ax_tag_form')]);
+      if (w) data.push([t('ax_d_blend'), fmt(t('ax_d_blend_v'), { s: esc(srcName(m.src)), w: Math.round(w * 100) }), srcName(m.src)]);
+      const say = fmt(t('ax_st_say'), { h: H, w: sh.w || 0, d: sh.d || 0, l: sh.l || 0, a: Aw, w2: sa.w || 0, d2: sa.d || 0, l2: sa.l || 0, p1: axPts(fh), p2: axPts(fa) }) + ' ' + axConc(m, x, x.k);
+      html += axCard(m, 'st', x, { pk: x.k, pv: pv('st'), data, steps: st, say });
+    }
+
+    // 3c) Osman (piyasa)
+    if (A.mk) {
+      const x = A.mk, mg = x.sum - 1, grpL = { ou15: t('ou') + ' 1.5', ou25: t('ou') + ' 2.5', ou35: t('ou') + ' 3.5', kg: t('btts') };
+      const data = [[t('ax_d_book'), `<b>${esc(srcName(m.src))}</b>`, srcName(m.src)],
+        [t('ms'), `1 <b>${o['1'].toFixed(2)}</b> · X <b>${o.X.toFixed(2)}</b> · 2 <b>${o['2'].toFixed(2)}</b>`, srcName(m.src)]];
+      x.grp.forEach(g => data.push([grpL[g.g], `${esc(mkShort(g.a, m))} <b>${o[g.a].toFixed(2)}</b> · ${esc(mkShort(g.b, m))} <b>${o[g.b].toFixed(2)}</b>`, srcName(g.src)]));
+      const st = [
+        fmt(t('ax_mk_1'), { o1: o['1'].toFixed(2), o2: o.X.toFixed(2), o3: o['2'].toFixed(2), a: p1d(x.inv[0]), b: p1d(x.inv[1]), c: p1d(x.inv[2]), s: p1d(x.sum) }),
+        fmt(t('ax_mk_2'), { m: p1d(mg), a: p1d(x.q[0]), b: p1d(x.q[1]), c: p1d(x.q[2]) })];
+      x.grp.forEach(g => st.push(fmt(t('ax_mk_3'), { g: grpL[g.g], a: esc(mkShort(g.a, m)), x: p1d(x.v[g.a]), b: esc(mkShort(g.b, m)), y: p1d(x.v[g.b]) })));
+      if (!x.grp.length) st.push(t('ax_mk_3n'));
+      st.push(fmt(t('ax_mk_4'), { h: esc(H), x: f2(x.lam[0]), a: esc(Aw), y: f2(x.lam[1]) }));
+      const fav = x.q[0] >= x.q[2] ? H : Aw;
+      const say = fmt(t('ax_mk_say'), { t: fav, p: pct(Math.max(x.q[0], x.q[2])), d: pct(x.q[1]), m: p1d(mg) }) + ' ' + axConc(m, x, x.k);
+      html += axCard(m, 'mk', x, { pk: x.k, pv: pv('mk'), data, steps: st, say });
+    } else html += axCard(m, 'mk', null, { data: [[t('ax_d_book'), t('ax_mk_none')]], steps: [t('ax_mk_none_d')], say: t('ax_mk_none_s') });
+
+    // 3d) Coskun (form)
+    if (A.fm) {
+      const x = A.fm, w = x.w, W = [1, .8, .64, .51, .41, .33], L = RL();
+      const glist = (id, f) => `<div class="axfl"><div class="axfh">${logo(id, 'sm')} <b>${esc(ts(id))}</b> <span class="frm">${formDots(f.slice(0, 6).map(g => g.r).reverse())}</span></div>
+        <table class="axft num"><thead><tr><th></th><th class="tn">${t('ax_opp')}</th><th>${t('ax_score')}</th><th>${t('ax_wt')}</th></tr></thead><tbody>${f.slice(0, 6).map((g, i) => `<tr><td><span class="f ${g.r}">${esc(L[g.r].slice(0, 1))}</span></td><td class="tn">${g.ha === 'H' ? '' : '@ '}${esc(ts(g.o))} <small class="mut">${shortDate(g.d)}</small></td><td><b>${g.gf}-${g.ga}</b></td><td class="mut">${W[i] != null ? W[i].toFixed(2) : Math.pow(.8, i).toFixed(2)}</td></tr>`).join('')}</tbody></table></div>`;
+      const sum = (f, k) => f.slice(0, 6).reduce((s, g) => s + g[k], 0);
+      const data = [[esc(H), `${axFs(fh)} · ${sum(fh, 'gf')}:${sum(fh, 'ga')}`, t('ax_tag_form')], [esc(Aw), `${axFs(fa)} · ${sum(fa, 'gf')}:${sum(fa, 'ga')}`, t('ax_tag_form')]];
+      const st = [t('ax_fm_1'),
+        fmt(t('ax_fm_2'), { h: esc(H), a1: f2(w.hgf), a2: f2(w.hga), a: esc(Aw), b1: f2(w.agf), b2: f2(w.aga) }),
+        fmt(t('ax_fm_3'), { h: esc(H), x: f2(w.hgf), y: f2(w.aga), r: f2(x.lam[0]) }),
+        fmt(t('ax_fm_4'), { a: esc(Aw), x: f2(w.agf), y: f2(w.hga), r: f2(x.lam[1]) })];
+      const say = fmt(t('ax_fm_say'), { h: H, f: axFs(fh), g1: sum(fh, 'gf'), c1: sum(fh, 'ga'), a: Aw, g: axFs(fa), g2: sum(fa, 'gf'), c2: sum(fa, 'ga') }) + ' ' + axConc(m, x, x.k);
+      html += axCard(m, 'fm', x, { pk: x.k, pv: pv('fm'), data, steps: st, say, extra: `<div class="axfls">${glist(m.h, fh)}${glist(m.a, fa)}</div>` });
+    } else html += axCard(m, 'fm', null, { data: [[t('ax_tag_form'), `${fh.length} + ${fa.length}`]], steps: [t('ax_fm_none')], say: t('ax_fm_none') });
+
+    // 3e) Rifki (deger / risk)
+    {
+      const R = X.risky, ck = b => (b ? '✗' : '✓');
+      const data = [[t('ax_d_vr_in'), X.voters.map(a => `${agAv(a, false, AX_IC[a])} ${esc(t('ag_' + a))}`).join(' ')],
+        [t('ax_d_risk'), `${ck(R.src)} ${t('ax_r_src')} · ${ck(R.fr)} ${t('ax_r_fr')} · ${ck(R.few)} ${t('ax_r_few')}`]];
+      const st = [t('ax_vr_1'), t('ax_vr_2'), t('ax_vr_3')];
+      let extra = '', say, pk = null, pvs = '';
+      if (X.vr) {
+        const r = X.vr.r; pk = r.k; pvs = (r.ev >= 0 ? '+' : '') + Math.round(r.ev * 100) + '%';
+        extra = `<div class="tblwrap"><table class="tbl axt axvt"><thead><tr><th class="tn">${t('ax_opt')}</th><th>${t('ax_cp')}</th><th>${t('ax_fair')}</th><th>${t('ax_site')}</th><th>${t('ag_ev')}</th></tr></thead><tbody>
+          ${X.vr.rows.slice(0, 6).map(q => `<tr class="${q.k === r.k ? 'hl' : ''}"><td class="tn">${esc(mkLabel(q.k, m))}</td><td>%${pct(q.c)}</td><td class="num">${(1 / q.c).toFixed(2)}</td><td class="num"><b>${q.o.toFixed(2)}</b></td><td class="num ${q.ev >= 0 ? 'axpos' : 'axneg'}">${(q.ev >= 0 ? '+' : '') + Math.round(q.ev * 100)}%</td></tr>`).join('')}
+          </tbody></table></div>`;
+        say = fmt(t(r.ev >= 0 ? 'ax_vr_say_p' : 'ax_vr_say_n'), { k: mkLabel(r.k, m), c: pct(r.c), f: (1 / r.c).toFixed(2), o: r.o.toFixed(2), e: Math.abs(Math.round(r.ev * 100)) });
+        if (R.fr || R.few) say += ' ' + t('ax_vr_risk');
+      } else say = t('ax_vr_none');
+      const res = pk ? `<div class="axres"><div class="axr1"><small>${t('ax_res')}</small><b>${esc(mkLabel(pk, m))}</b><span class="mut">${t('ax_cp')} %${pct(X.vr.r.c)} · ${t('ag_ev')} ${pvs}</span></div>${ob(m, pk)}</div>` : '';
+      html += axCard(m, 'vr', null, { pk, pv: pvs, data, steps: st, say, extra, res });
+    }
+
+    // 4) veri kaynaklari
+    const ss = m.ss || {}, sl = s => esc(srcName(s || 'model'));
+    html += `<div class="card sec"><h2>📚 ${t('ax_srcs')}</h2><ul class="cmt">
+      <li>${fmt(t('ax_src_1'), { s: dataSrc })}</li>
+      <li>${t('ax_src_2')}: ${t('ms')} <b>${sl(ss.ms || m.src)}</b> · ${t('dc')} <b>${sl(ss.dc)}</b> · ${t('ou')} 1.5 <b>${sl(ss.ou15)}</b> · 2.5 <b>${sl(ss.ou25 || m.ou)}</b> · 3.5 <b>${sl(ss.ou35)}</b> · ${t('btts')} <b>${sl(ss.kg)}</b></li>
+      <li>${t('ax_src_3')}</li>
+      <li>${fmt(t('ax_src_4'), { d: upd })}</li></ul>
+      <p class="note">${t('foot_disc')}</p></div>`;
+    return html;
+  }
+
+  // ---------- basketbol: Analiz sekmesi (update.py basketball() formulleri) ----------
+  const BBX_IC = { pw: '🏀', mk: '💹', fm: '📈', rs: '🛌', in: '🩺' };
+  const axErf = x => { const s = x < 0 ? -1 : 1; x = Math.abs(x); const tt = 1 / (1 + 0.3275911 * x);
+    return s * (1 - (((((1.061405429 * tt - 1.453152027) * tt) + 1.421413741) * tt - 0.284496736) * tt + 0.254829592) * tt * Math.exp(-x * x)); };
+  const axPhi = x => 0.5 * (1 + axErf(x / Math.SQRT2));
+  const f1 = v => (v == null || isNaN(v) ? '–' : (+v).toFixed(1));
+  const sgn = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+  function bbxModel(m) {
+    const x0 = m.agx || {}, st = m.st || {}, o = m.o, line = m.line, E = {}, info = {};
+    const ha = st.ha || {}, aa = st.aa || {}, hs = st.h || {}, as = st.a || {}, K = 3;
+    const mdl = (m.p && m.p.model) || null;
+    // lig ortalamasi: veri dosyasinda varsa oradan, yoksa Guc ajaninin denkleminden geri cozulur
+    let avg = x0.avg;
+    if (avg == null && mdl && ha.p && aa.p) {
+      const c = 3 / (ha.p + K) + 3 / (aa.p + K) - 1;
+      avg = (mdl[0] - 1.6 - ha.pf / (ha.p + K) - aa.pa / (aa.p + K)) / c;
+    }
+    info.avg = avg;
+    const rate = (v, p) => (v + K * avg) / (p + K);
+    if (mdl) E.pw = [mdl[0] - mdl[1], mdl[0] + mdl[1]];
+    const fh = m.f.h || [], fa = m.f.a || [];
+    if (fh.length >= 3 && fa.length >= 3) {
+      const av = (f, k) => f.reduce((s, g) => s + g[k], 0) / f.length;
+      info.fm = { hgf: av(fh, 'gf'), hga: av(fh, 'ga'), agf: av(fa, 'gf'), aga: av(fa, 'ga') };
+      const eh = (info.fm.hgf + info.fm.aga) / 2 + 1.6, ea = (info.fm.agf + info.fm.hga) / 2 - 1.6;
+      info.fm.eh = eh; info.fm.ea = ea; E.fm = [eh - ea, eh + ea];
+    }
+    const rest = x0.rest || [null, null], fat = r => (r == null ? 0 : r === 0 ? -2.2 : r >= 3 ? 0.6 : 0);
+    if (avg != null && hs.p >= 3 && as.p >= 3) {
+      const eh = (rate(hs.pf, hs.p) + rate(as.pa, as.p)) / 2 + fat(rest[0]), ea = (rate(as.pf, as.p) + rate(hs.pa, hs.p)) / 2 + fat(rest[1]);
+      info.rs = { eh, ea, fh: fat(rest[0]), fa: fat(rest[1]), ah: rate(hs.pf, hs.p), dh: rate(hs.pa, hs.p), aA: rate(as.pf, as.p), dA: rate(as.pa, as.p) }; E.rs = [eh - ea, eh + ea];
+    }
+    const pen = x0.pen || [0, 0];
+    if (E.pw && m.ag && m.ag.in) E.in = [E.pw[0] - pen[0] + pen[1], E.pw[1] - 0.6 * (pen[0] + pen[1])];
+    if (x0.est) Object.keys(x0.est).forEach(a => { E[a] = x0.est[a]; });
+    const P = {};
+    Object.keys(E).forEach(a => { const [mg, tot] = E[a], p1 = axPhi(mg / 12.5), po = 1 - axPhi((line - tot) / 18.5); P[a] = { '1': p1, '2': 1 - p1, BO: po, BU: 1 - po }; });
+    if (m.src && m.src !== 'model' && o['1'] && o['2']) {
+      const i1 = 1 / o['1'], i2 = 1 / o['2'], q1 = i1 / (i1 + i2), v = { '1': q1, '2': 1 - q1 };
+      let lo = -40, hi = 40; for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (axPhi(mid / 12.5) < q1) lo = mid; else hi = mid; }
+      const real = x0.lsrc ? x0.lsrc !== 'model' : true;
+      if (real && o.BO && o.BU) { const io = 1 / o.BO, iu = 1 / o.BU; v.BO = io / (io + iu); v.BU = iu / (io + iu); }
+      P.mk = v; info.mk = { i1, i2, q1, mg: lo, real: real && !!(o.BO && o.BU) };
+    }
+    const ag = {}, ks = ['1', '2', 'BO', 'BU'].filter(k => o[k] && o[k] >= 1.3);
+    Object.keys(P).forEach(a => { const g = (m.ag || {})[a]; ag[a] = g && o[g[0]] ? g[0] : ks.filter(k => P[a][k] != null).sort((p, q) => P[a][q] - P[a][p])[0]; });
+    const voters = BB_AGENTS.map(x => x[0]).filter(a => P[a]);
+    const cons = k => { const ps = voters.map(a => P[a][k]).filter(v => v != null); return ps.length ? ps.reduce((s, v) => s + v, 0) / ps.length : 0; };
+    return { E, P, ag, voters, cons, info, rest, pen };
+  }
+  function tabAnalysisBB(m) {
+    const X = bbxModel(m), E = X.E, P = X.P, I = X.info, H = ts(m.h), Aw = ts(m.a), o = m.o, st = m.st || {}, L = m.line;
+    if (!X.voters.length) return `<div class="card empty">${t('ax_none')}</div>`;
+    const nm = a => agName(a, true), pc = (a, k) => (P[a] && P[a][k] != null ? pct(P[a][k]) : '–');
+    const tip = m.tip && o[m.tip.k] ? m.tip : null, upd = D.updated ? shortDate(D.updated) + ' ' + timeOf(D.updated) : '–';
+    const inj = m.inj || { h: [], a: [] }, nOut = (X.rest && m.agx && m.agx.out) || [0, 0];
+    const pick = a => X.ag[a];
+    const res = (a, extra) => { const k = pick(a); if (!k) return ''; const e = E[a];
+      return `<div class="axres"><div class="axr1"><small>${t('ax_res')}</small><b>${esc(mkLabel(k, m))}</b><span class="mut">${e ? `${t('axb_mg')} ${esc(e[0] >= 0 ? H : Aw)} +${Math.abs(e[0]).toFixed(1)} · ${t('bb_exp_total')} ${f1(e[1])}` : extra || ''}</span></div>${ob(m, k)}</div>
+        <div class="axbar">${pbar({ p1: P[a]['1'], p2: P[a]['2'] })}<div class="plabels"><span>1 · ${esc(H)}</span><span>2 · ${esc(Aw)}</span></div></div>`; };
+    const conc = a => { const k = pick(a), e = E[a], p = P[a][k]; let s = '';
+      if (e) s += fmt(t('axb_conc'), { t: e[0] >= 0 ? H : Aw, x: Math.abs(e[0]).toFixed(1), y: f1(e[1]) }) + ' ';
+      s += fmt(t(/^B/.test(k) ? 'axb_k_ou' : 'axb_k_ms'), { k: mkLabel(k, m), p: pct(p), l: L, a: pct(P[a]['1']), b: pct(P[a]['2']) });
+      if (p < .55) s += ' ' + t('ax_low');
+      return s; };
+    const card = (a, o2) => axCard(m, a, null, Object.assign({ bb: true, pk: pick(a), pv: pick(a) ? '%' + pct(P[a][pick(a)]) : '' }, o2));
+    const rec = r => (r && r.p ? `${r.p} ${t('ax_mp')} · ${r.w}-${r.l} · ${t('axb_ppg')} ${f1(r.pf / r.p)} / ${f1(r.pa / r.p)}` : '–');
+    const probStep = a => fmt(t('axb_prob'), { m: f1(E[a][0]), p: pct(P[a]['1']), l: L, s: f1(E[a][1]), q: pct(P[a].BO) });
+
+    // ozet
+    const q1 = X.cons('1'), qo = X.cons('BO'), mgs = X.voters.filter(a => E[a]).map(a => E[a][0]), tots = X.voters.filter(a => E[a]).map(a => E[a][1]);
+    const vs = [Math.abs(q1 - .5) >= .06 ? fmt(t('axb_v_fav'), { t: q1 >= .5 ? H : Aw, p: pct(Math.max(q1, 1 - q1)) }) : fmt(t('axb_v_even'), { a: pct(q1), b: pct(1 - q1) })];
+    if (tots.length) vs.push(fmt(t(qo >= .5 ? 'axb_v_hi' : 'axb_v_lo'), { lo: f1(Math.min(...tots)), hi: f1(Math.max(...tots)), l: L, p: pct(qo >= .5 ? qo : 1 - qo) }));
+    if (tip) {
+      const ag = X.voters.filter(a => X.ag[a] === tip.k && P[a][tip.k] >= .55), df = X.voters.filter(a => X.ag[a] && X.ag[a] !== tip.k);
+      if (ag.length) vs.push(fmt(t('ax_v_agree'), { n: ag.map(nm).join(', '), k: mkLabel(tip.k, m), p: pct(X.cons(tip.k)) }));
+      df.forEach(a => vs.push(fmt(t('ax_v_diff'), { n: nm(a), k: mkLabel(X.ag[a], m), p: pct(P[a][X.ag[a]]), w: t('axb_why_' + a) })));
+    }
+    let html = `<div class="card sec axv"><h2>🔎 ${t('ax_title')}</h2><p class="note" style="margin:-6px 0 12px">${t('ax_intro')}</p>
+      ${tip ? `<div class="axverd"><i class="av a-all">★</i><div><small>${t('ag_cons')}</small><b>${esc(mkLabel(tip.k, m))}</b><span class="mut">${fmt(t('ag_votes'), { v: tip.v })} · ${t('ax_avgp')} %${pct(tip.p)}</span></div>${ob(m, tip.k)}</div>` : ''}
+      <ul class="cmt axcmt">${vs.map(s => `<li>${esc(s)}</li>`).join('')}</ul>
+      <div class="axsrc"><span>📊 ${t('ax_s_odds')}: <b>${esc(srcName(m.src))}</b></span><span>📅 ${t('ax_s_form')}: <b>${(m.f.h || []).length} + ${(m.f.a || []).length}</b></span>
+        <span>🏟️ ${t('ax_s_season')}: <b>${(st.ha || {}).p || 0} + ${(st.aa || {}).p || 0}</b></span><span>🩹 ${t('ax_s_out')}: <b>${nOut[0]} – ${nOut[1]}</b></span>
+        <span>🛌 ${t('ax_s_rest')}: <b>${X.rest[0] == null ? '–' : X.rest[0]} – ${X.rest[1] == null ? '–' : X.rest[1]} ${t('ax_days')}</b></span><span>🕒 ${t('ax_s_upd')}: <b>${upd}</b></span></div></div>`;
+
+    // yan yana
+    html += `<div class="card sec"><h2>⚖️ ${t('ax_cmp')}</h2><p class="note" style="margin:-6px 0 10px">${t('axb_cmp_d')}</p>
+      <div class="tblwrap"><table class="tbl axt"><thead><tr><th class="tn">${t('an_analyst')}</th><th>${t('axb_mg')}</th><th>${t('bb_exp_total')}</th><th>1 %</th><th>2 %</th><th>${t('over')} ${L}</th><th class="tn">${t('ax_pick')}</th></tr></thead><tbody>
+      ${X.voters.map(a => { const e = E[a], v = P[a], hi = k => ((k === '1') === (v['1'] >= .5) ? ' class="axhi"' : '');
+        return `<tr><td class="tn"><button type="button" class="axj" data-axj="${a}">${agAv(a, true, BBX_IC[a])}<span>${esc(nm(a))}</span></button></td><td class="num">${e ? sgn(e[0]) : '–'}</td><td class="num">${e ? f1(e[1]) : '–'}</td><td${hi('1')}>${pct(v['1'])}</td><td${hi('2')}>${pct(v['2'])}</td><td>${pc(a, 'BO')}</td><td class="tn axk${tip && X.ag[a] === tip.k ? ' agr' : ''}"><b>${esc(shortLab(X.ag[a], m))}</b> <small class="mut">%${pct(v[X.ag[a]])}</small></td></tr>`; }).join('')}
+      <tr class="axavg"><td class="tn"><i class="av a-all">★</i><span>${t('ax_avg')}</span></td><td class="num">${mgs.length ? sgn(mgs.reduce((s, v) => s + v, 0) / mgs.length) : '–'}</td><td class="num">${tots.length ? f1(tots.reduce((s, v) => s + v, 0) / tots.length) : '–'}</td><td>${pct(q1)}</td><td>${pct(1 - q1)}</td><td>${pct(qo)}</td><td class="tn axk">${tip ? `<b>${esc(shortLab(tip.k, m))}</b> <small class="mut">${tip.v}/5</small>` : '–'}</td></tr>
+      </tbody></table></div><p class="note">${t('axb_sign')}</p></div>`;
+    html += `<h2 class="dayhead">🤖 ${t('ax_agents')} <small class="mut">${t('ax_agents_d')}</small></h2>`;
+
+    // Guc
+    if (E.pw) {
+      const ha = st.ha || {}, aa = st.aa || {}, md = m.p.model;
+      html += card('pw', { data: [[fmt(t('axb_d_all'), { t: esc(H) }), rec(ha), t('ax_tag_season')], [fmt(t('axb_d_all'), { t: esc(Aw) }), rec(aa), t('ax_tag_season')], [t('axb_d_avg'), I.avg != null ? `<b>${f1(I.avg)}</b> ${t('axb_pts')}` : '–', 'NBA']],
+        steps: [fmt(t('axb_pw_1'), { a: f1(I.avg) }), fmt(t('axb_pw_2'), { h: esc(H), x: f1(md[0]), a: esc(Aw), y: f1(md[1]) }), probStep('pw')],
+        say: fmt(t('axb_pw_say'), { h: H, w: ha.w || 0, l: ha.l || 0, x: f1(ha.pf / ha.p), a: Aw, w2: aa.w || 0, l2: aa.l || 0, y: f1(aa.pf / aa.p) }) + ' ' + conc('pw'), res: res('pw') });
+    }
+    // Piyasa
+    if (P.mk) {
+      const k = I.mk, data = [[t('ax_d_book'), `<b>${esc(srcName(m.src))}</b>`, srcName(m.src)], [t('ms'), `1 <b>${o['1'].toFixed(2)}</b> · 2 <b>${o['2'].toFixed(2)}</b>`, srcName(m.src)]];
+      if (k.real) data.push([t('bb_total') + ' ' + L, `${t('over')} <b>${o.BO.toFixed(2)}</b> · ${t('under')} <b>${o.BU.toFixed(2)}</b>`, srcName(m.src)]);
+      const steps = [fmt(t('axb_mk_1'), { o1: o['1'].toFixed(2), o2: o['2'].toFixed(2), a: p1d(k.i1), b: p1d(k.i2), s: p1d(k.i1 + k.i2), p: p1d(k.q1), q: p1d(1 - k.q1) }),
+        fmt(t('axb_mk_2'), { t: esc(k.mg >= 0 ? H : Aw), x: Math.abs(k.mg).toFixed(1) })];
+      steps.push(k.real ? fmt(t('axb_mk_3'), { l: L, x: p1d(P.mk.BO), y: p1d(P.mk.BU) }) : t('axb_mk_3n'));
+      html += card('mk', { data, steps, say: fmt(t('axb_mk_say'), { t: k.q1 >= .5 ? H : Aw, p: pct(Math.max(k.q1, 1 - k.q1)) }) + ' ' + conc('mk'), res: res('mk', `1 %${pct(P.mk['1'])} · 2 %${pct(P.mk['2'])}`) });
+    } else html += axCard(m, 'mk', null, { bb: true, data: [[t('ax_d_book'), t('ax_mk_none')]], steps: [t('ax_mk_none_d')], say: t('ax_mk_none_s') });
+    // Form
+    if (E.fm && I.fm) {
+      const F = I.fm, Lr = RL(), fh = m.f.h, fa = m.f.a;
+      const gl = (id, f) => `<div class="axfl"><div class="axfh">${logo(id, 'sm')} <b>${esc(ts(id))}</b> <span class="frm">${formDots(f.slice(0, 6).map(g => g.r).reverse())}</span></div>
+        <table class="axft num"><thead><tr><th></th><th class="tn">${t('ax_opp')}</th><th>${t('ax_score')}</th></tr></thead><tbody>${f.slice(0, 6).map(g => `<tr><td><span class="f ${g.r}">${esc(Lr[g.r].slice(0, 1))}</span></td><td class="tn">${g.ha === 'H' ? '' : '@ '}${esc(ts(g.o))} <small class="mut">${shortDate(g.d)}</small></td><td><b>${g.gf}-${g.ga}</b></td></tr>`).join('')}</tbody></table></div>`;
+      html += card('fm', { data: [[esc(H), `${fh.filter(g => g.r === 'W').length}-${fh.filter(g => g.r !== 'W').length} · ${t('axb_ppg')} ${f1(F.hgf)} / ${f1(F.hga)}`, t('ax_tag_form')], [esc(Aw), `${fa.filter(g => g.r === 'W').length}-${fa.filter(g => g.r !== 'W').length} · ${t('axb_ppg')} ${f1(F.agf)} / ${f1(F.aga)}`, t('ax_tag_form')]],
+        extra: `<div class="axfls">${gl(m.h, fh)}${gl(m.a, fa)}</div>`,
+        steps: [t('axb_fm_1'), fmt(t('axb_fm_2'), { h: esc(H), x: f1(F.hgf), y: f1(F.aga), r: f1(F.eh) }), fmt(t('axb_fm_3'), { a: esc(Aw), x: f1(F.agf), y: f1(F.hga), r: f1(F.ea) }), probStep('fm')],
+        say: fmt(t('axb_fm_say'), { h: H, w: fh.filter(g => g.r === 'W').length, n: fh.length, a: Aw, w2: fa.filter(g => g.r === 'W').length, n2: fa.length }) + ' ' + conc('fm'), res: res('fm') });
+    } else html += axCard(m, 'fm', null, { bb: true, data: [[t('ax_tag_form'), '–']], steps: [t('ax_fm_none')], say: t('ax_fm_none') });
+    // Saha ve dinlenme
+    if (E.rs) {
+      const R = I.rs || {}, rd = r => (r == null ? '–' : r === 0 ? t('agb_b2b') : fmt(t('agb_rest_n'), { n: r }));
+      const fx = v => (v ? sgn(v) : '0');
+      const steps = I.rs ? [t('axb_rs_1'), fmt(t('axb_rs_2'), { h: esc(H), x: f1(R.ah), y: f1(R.dA), f: fx(R.fh), r: f1(R.eh) }), fmt(t('axb_rs_3'), { a: esc(Aw), x: f1(R.aA), y: f1(R.dh), f: fx(R.fa), r: f1(R.ea) }), probStep('rs')] : [t('axb_rs_1'), probStep('rs')];
+      html += card('rs', { data: [[fmt(t('ax_d_home'), { t: esc(H) }), rec(st.h), t('ax_tag_season')], [fmt(t('ax_d_away'), { t: esc(Aw) }), rec(st.a), t('ax_tag_season')], [t('agb_rest'), `${esc(H)} <b>${rd(X.rest[0])}</b> · ${esc(Aw)} <b>${rd(X.rest[1])}</b>`, t('ax_tag_fix')]],
+        steps, say: fmt(t('axb_rs_say'), { h: H, w: (st.h || {}).w || 0, l: (st.h || {}).l || 0, a: Aw, w2: (st.a || {}).w || 0, l2: (st.a || {}).l || 0, r1: rd(X.rest[0]), r2: rd(X.rest[1]) }) + ' ' + conc('rs'), res: res('rs') });
+    }
+    // Kadro
+    if (E.in) {
+      const il = l => (l && l.length ? l.slice(0, 5).map(x => `${esc(x.n)} <small class="mut">(${esc(x.s || '')})</small>`).join(', ') + (l.length > 5 ? '…' : '') : t('no_absent'));
+      html += card('in', { data: [[esc(H), il(inj.h), 'ESPN'], [esc(Aw), il(inj.a), 'ESPN'], [t('agb_out'), `${esc(H)} <b>−${f1(X.pen[0])}</b> · ${esc(Aw)} <b>−${f1(X.pen[1])}</b> ${t('axb_pts')}`]],
+        steps: [t('axb_in_1'), fmt(t('axb_in_2'), { h: esc(H), x: f1(X.pen[0]), a: esc(Aw), y: f1(X.pen[1]), m: sgn(E.in[0]), s: f1(E.in[1]) }), probStep('in')],
+        say: fmt(t('axb_in_say'), { h: H, x: f1(X.pen[0]), a: Aw, y: f1(X.pen[1]) }) + ' ' + conc('in'), res: res('in') });
+    } else html += axCard(m, 'in', null, { bb: true, data: [[t('bb_inj'), t('axb_in_none')]], steps: [t('axb_in_none')], say: t('axb_in_none') });
+
+    html += `<div class="card sec"><h2>📚 ${t('ax_srcs')}</h2><ul class="cmt"><li>${fmt(t('ax_src_1'), { s: 'ESPN (NBA)' })}</li>
+      <li>${t('ax_src_2')}: ${t('ms')} / ${t('bb_total')} <b>${esc(srcName(m.src))}</b></li><li>${t('axb_src')}</li><li>${fmt(t('ax_src_4'), { d: upd })}</li></ul><p class="note">${t('foot_disc')}</p></div>`;
+    return html;
+  }
+
   // ---------- mac detay ----------
   const backLink = href => `<a class="back" href="${href || '#/'}" data-back="1">← ${t('back')}</a>`;
   function viewMatch(id) {
@@ -879,9 +1303,10 @@
         <div class="vs"><div class="side-t">${logo(m.h)}<span>${esc(tn(m.h))}</span></div><div class="mid">${timeOf(m.d)}<small>${shortDate(m.d)}</small></div><div class="side-t">${logo(m.a)}<span>${esc(tn(m.a))}</span></div></div></div></div>
         <div class="card empty"><span class="spin"></span> ${t('loading')}</div>`;
     }
-    const TABS = [['pred', t('pred')], ['odds', t('odds')], ['table', t('standings')], ['form', t('formh2h')], ['squad', t('lineups')], ['players', t('players')]];
+    const TABS = [['an', '🔎 ' + t('ax_tab')], ['pred', t('pred')], ['odds', t('odds')], ['table', t('standings')], ['form', t('formh2h')], ['squad', t('lineups')], ['players', t('players')]];
     let body = '';
     if (dtab === 'pred') body = tabPred(m);
+    else if (dtab === 'an') body = tabAnalysis(m);
     else if (dtab === 'odds') body = tabOdds(m);
     else if (dtab === 'table') body = `<div class="card sec">${tableHtml(m.lg, [m.h, m.a])}</div>`;
     else if (dtab === 'form') body = tabForm(m);
@@ -989,10 +1414,11 @@
     return `<div class="grid2">${one(m.h, m.pl.h, inj.h)}${one(m.a, m.pl.a, inj.a)}</div><p class="note">${t('bb_pl_note')}</p>`;
   }
   function viewMatchBB(m) {
-    const TABS = [['pred', t('pred')], ['odds', t('odds')], ['table', t('standings')], ['form', t('formh2h')], ['players', t('players')]];
+    const TABS = [['an', '🔎 ' + t('ax_tab')], ['pred', t('pred')], ['odds', t('odds')], ['table', t('standings')], ['form', t('formh2h')], ['players', t('players')]];
     if (!TABS.some(x => x[0] === dtab)) dtab = 'pred';
     let body;
     if (dtab === 'pred') body = tabPredBB(m);
+    else if (dtab === 'an') body = tabAnalysisBB(m);
     else if (dtab === 'odds') body = `<div class="card sec"><h2>${t('ms')} ${srcBadge(m.src)}</h2><div class="og c2">${ob(m, '1')}${ob(m, '2')}</div></div>
       <div class="card sec"><h2>${t('bb_total')} ${m.line} ${srcBadge(m.src)}</h2><div class="og c2">${ob(m, 'BU')}${ob(m, 'BO')}</div></div><p class="note">${t('bb_note')}</p>`;
     else if (dtab === 'table') body = `<div class="card sec">${bbTableHtml([m.h, m.a])}</div>`;
@@ -1637,7 +2063,8 @@
     if (d.lg) { flt.lg = flt.lg === d.lg ? 'all' : d.lg; flt.alim = 24; return render(); }
     if (d.day) { flt.day = d.day; flt.q = ''; flt.alim = 24; return render(); }
     if (d.rday) { flt.rday = d.rday; return render(); }
-    if (d.dtab) { dtab = d.dtab; return render(); }
+    if (d.dtab) { dtab = d.dtab; render(); if (d.top) scrollTo(0, 0); return; }
+    if (d.axj) { const el = $('ax-' + d.axj); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (d.fav) {
       const id = d.fav, on = !FAV.has(id);
       if (on) FAV.add(id); else FAV.delete(id);
@@ -1707,7 +2134,7 @@
     const h = location.hash || '#/';
     if (stack.length > 1 && stack[stack.length - 2] === h) stack.pop(); else stack.push(h);
     navDepth = stack.length - 1;
-    if (!/^#\/mac\//.test(location.hash)) dtab = 'pred';
+    dtab = /^#\/mac\//.test(location.hash) ? 'an' : 'pred';   // maca girildiginde once Analiz acilir
     document.body.classList.remove('slipopen'); render();
   });
   window.addEventListener('resize', syncStrips);
@@ -1722,6 +2149,7 @@
       el.replaceWith(sp);
     }
   }, true);
+  if (/^#\/mac\//.test(location.hash)) dtab = 'an';
   cleanSlip(); settle(); render();
   if (SB) sbLoad().then(() => { settle(); render(); }).catch(() => { });
   (function () {   // yeni MollaMyrat kuponu haber ver (ilk ziyarette degil)
