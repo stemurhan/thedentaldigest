@@ -1020,7 +1020,94 @@ def wins(k, hs, as_):
     return tot > n if k[0] == "O" else tot < n
 
 
+# ---- Tutarli karar zinciri ----------------------------------------------------
+# Bir mac icin gosterilen her sey (sonuc olasiliklari, tahmini skor, ilk yari skoru, Analiz365 tahmini,
+# kupon secimleri) AYNI olasilik dagilimindan ve su sirayla turetilir:
+#   1) en olasi sonuc (1 / X / 2)     2) o sonuc icindeki en olasi skor
+#   3) bu skora ulasilabilen en olasi ilk yari skoru     4) bu skorla celismeyen secimler
+OUTC = ("1", "X", "2")
+
+
+def _oc(i, j):
+    return 0 if i > j else 1 if i == j else 2
+
+
+def full_matrix(lh, la, n=8):
+    ph, pa = pois(lh), pois(la)
+    mat = [[ph[i] * pa[j] * (_dc_tau(i, j, lh, la) if i < 2 and j < 2 else 1) for j in range(n + 1)] for i in range(n + 1)]
+    t_ = sum(map(sum, mat))
+    return [[v / t_ for v in r] for r in mat]
+
+
+def consistent_score(mat, lim=6, pr=None):
+    """En olasi sonuc icindeki en olasi skor. Doner: ([ev, dep], skor olasiligi, [p1, px, p2]).
+    pr verilirse sonuc o olasiliklara gore secilir (heyetin ortak olasiliklari)."""
+    n = len(mat)
+    if pr is None:
+        pr = [0.0, 0.0, 0.0]
+        for i in range(n):
+            for j in range(n):
+                pr[_oc(i, j)] += mat[i][j]
+    o = max(range(3), key=lambda x: pr[x])
+    i, j = max(((i, j) for i in range(min(n, lim)) for j in range(min(n, lim)) if _oc(i, j) == o),
+               key=lambda t_: mat[t_[0]][t_[1]])
+    return [i, j], mat[i][j], pr
+
+
+def consistent_ht(lh, la, sc, f=0.45):
+    """Mac sonu skoruna (sc) ulasilabilen en olasi ilk yari skoru: P(IY i-j) * P(ikinci yari sc-i, sc-j)."""
+    h1, a1 = pois(lh * f), pois(la * f)
+    h2, a2 = pois(lh * (1 - f)), pois(la * (1 - f))
+    return list(max(((i, j) for i in range(sc[0] + 1) for j in range(sc[1] + 1)),
+                    key=lambda t_: h1[t_[0]] * a1[t_[1]] * h2[sc[0] - t_[0]] * a2[sc[1] - t_[1]]))
+
+
+def committee_p(lam_, pv, n=8):
+    """Analiz365 = analizci heyeti: her analizcinin skor matrisi AG_W agirligiyla ortalanir. Bu tek dagilimdan
+    sonuc olasiliklari, alt/ust, karsilikli gol, tahmini skor ve ilk yari skoru turetilir."""
+    W = {a: AG_W.get(a, 1.0) for a in lam_}
+    tw = sum(W.values())
+    mats = {a: full_matrix(*l_, n=n) for a, l_ in lam_.items()}
+    M = [[sum(W[a] * mats[a][i][j] for a in mats) / tw for j in range(n + 1)] for i in range(n + 1)]
+    lh = sum(W[a] * l_[0] for a, l_ in lam_.items()) / tw
+    la = sum(W[a] * l_[1] for a, l_ in lam_.items()) / tw
+    # olasiliklar analizcilerin kendi olasiliklarinin agirlikli ortalamasi (piyasa ajani gercek oranlari kullanir);
+    # skor, bu olasiliklara gore en olasi sonucun icinde heyet matrisinin en olasi skoru
+    c = lambda k: wmean(pv, k)
+    pr = [c("1"), c("X"), c("2")]
+    sc, sp, _ = consistent_score(M, pr=pr)
+    r4 = lambda v: round(v, 4)
+    top = sorted(((M[i][j], i, j) for i in range(6) for j in range(6)), reverse=True)[:6]
+    return {"lh": round(lh, 2), "la": round(la, 2), "p1": r4(pr[0]), "px": r4(pr[1]), "p2": r4(1 - pr[0] - pr[1]),
+            "o15": r4(c("O1.5")), "o25": r4(c("O2.5")), "o35": r4(c("O3.5")), "btts": r4(c("KGV")),
+            "score": sc, "sp": r4(sp), "ht": consistent_ht(lh, la, sc),
+            "top": [[i, j, r4(v)] for v, i, j in top]}
+
+
+def agent_score(lam_a):
+    return consistent_score(full_matrix(*lam_a))[0]
+
+
+def analiz_tip(m):
+    """Analiz365 tahmini: tahmini skorla celismeyen secenekler icinde nihai olasiligi en yuksek olan (oran 1.30+).
+    Onay: kendi olasiligi %50'yi gecen analizciler + (orani degerli bulursa) Rifki."""
+    p, o, sc = m["p"], m["o"], m["p"]["score"]
+    pr = _pvec(p)
+    cands = [k for k in AG_KEYS if o.get(k) and o[k] >= 1.3 and wins(k, *sc)] or \
+            [k for k in AG_KEYS if o.get(k) and wins(k, *sc)]
+    if not cands:
+        return None
+    k = max(cands, key=lambda x: pr[x])
+    pv = agent_probs(m)
+    v = sum(1 for a in VOTE_AGENTS if a in pv and pv[a][k] >= 0.5)
+    if len(pv) >= 3 and m.get("src") != "model" and m["lg"] != "fifa.friendly" and wmean(pv, k) * o[k] - 1 >= -0.05:
+        v += 1
+    return {"k": k, "p": round(pr[k], 4), "o": o[k], "v": v}
+
+
 def tip_of(m):
+    if m.get("cons"):                               # tahmin arsivi de Analiz365 tahminini kaydeder
+        return m["cons"]["p"], m["cons"]["k"], m["cons"]["o"]
     p = m["p"]
     pr = {"1": p["p1"], "X": p["px"], "2": p["p2"], "1X": p["p1"] + p["px"], "X2": p["px"] + p["p2"],
           "O2.5": p["o25"], "U2.5": 1 - p["o25"], "KGV": p["btts"], "KGY": 1 - p["btts"]}
@@ -1427,11 +1514,13 @@ def agent_best(m):
         return out
     for a in VOTE_AGENTS:
         if a in pv:
-            k = max(ks, key=lambda x: pv[a][x])
+            sa = agent_score(lam[a])                # analizci kendi tahmini skoruyla celisen secimi yapmaz
+            ka = [x for x in ks if wins(x, *sa)] or                 [x for x in AG_KEYS if m["o"].get(x) and wins(x, *sa)] or ks   # oran esigi esner, tutarlilik esnemez
+            k = max(ka, key=lambda x: pv[a][x])
             out[a] = [k, round(pv[a][k], 3), round(lam[a][0], 2), round(lam[a][1], 2)]
     if len(pv) >= 3 and m.get("src") != "model":
         cons = lambda k: wmean(pv, k)
-        c = [k for k in ks if cons(k) >= 0.4]
+        c = [k for k in ks if cons(k) >= 0.4 and wins(k, *m["p"]["score"])]
         if c:
             k = max(c, key=lambda x: cons(x) * m["o"][x])
             out["vr"] = [k, round(cons(k) * m["o"][k] - 1, 3)]
@@ -1441,7 +1530,12 @@ def agent_best(m):
 def own_coupons(pool, base):
     """Her analizcinin yalnizca kendi olasiliklariyla kurdugu banko / surpriz / sistem kuponu."""
     mean = lambda xs: sum(xs) / len(xs)
-    pvs = {m["id"]: agent_probs(m) for m in pool}
+    pvs, scs = {}, {}
+    for m in pool:
+        lam = {}
+        pvs[m["id"]] = agent_probs(m, lam)
+        scs[m["id"]] = {a: agent_score(l_) for a, l_ in lam.items()}
+        scs[m["id"]]["vr"] = m["p"]["score"]
     res = {}
     for a in AGENTS:
         used, res[a] = set(), {}
@@ -1459,7 +1553,7 @@ def own_coupons(pool, base):
                 best = None
                 for k in AG_KEYS:
                     o = m["o"].get(k)
-                    if not o or not cfg["lo"] <= o <= cfg["hi"]:
+                    if not o or not cfg["lo"] <= o <= cfg["hi"] or not wins(k, *scs[m["id"]][a]):
                         continue
                     if a == "vr":
                         pr = wmean(pv, k)
@@ -1563,7 +1657,11 @@ def extra_coupons(pool, base):
                 inv = [1 / x for x in xo["hf"]]
                 pa[a] = [x / sum(inv) for x in inv]
         best = None
+        sc0, ht0 = m["p"]["score"], m["p"].get("ht") or [0, 0]
+        hf_ok = OUTC[_oc(*ht0)] + "/" + OUTC[_oc(*sc0)]   # tahmini ilk yari ve mac sonu skoruyla ayni IY/MS
         for i, r in enumerate(HF_KEYS):
+            if r != hf_ok:
+                continue
             cons = sum(W[a] * pa[a][i] for a in ags) / tw
             o = (xo.get("hf") or [None] * 9)[i] or odd(cons)
             if o < 1.3 or cons < XK_NEED:
@@ -1582,14 +1680,16 @@ def extra_coupons(pool, base):
         # mac skoru: ortak skor matrisinin en olasi skoru; onay = kendi en olasi skoru ayni olan ajanlar
         mats = {a: _score_mat(*lam[a]) for a in ags}
         cm = [[sum(W[a] * mats[a][i][j] for a in ags) / tw for j in range(6)] for i in range(6)]
-        ci, cj = max(((i, j) for i in range(6) for j in range(6)), key=lambda t_: cm[t_[0]][t_[1]])
+        ci, cj = m["p"]["score"]                     # skor kuponu: Analiz365'in tahmini skoru
+        if ci > 5 or cj > 5:
+            continue
         cons = cm[ci][cj]
         row = []
         for a in VOTE_AGENTS:
             if a not in mats:
                 row.append(None)
                 continue
-            ai, aj = max(((i, j) for i in range(6) for j in range(6)), key=lambda t_: mats[a][t_[0]][t_[1]])
+            ai, aj = consistent_score(mats[a])[0]
             row.append([round(mats[a][ci][cj], 3), int((ai, aj) == (ci, cj))])
         o = odd(cons)
         row.append([round(cons * o - 1, 3), int(not risky)])
@@ -1672,8 +1772,8 @@ def molla(matches, done_by_id, src_team, use):
             busted = True
             print("   MollaMyrat: guncel kuponda tutmayan mac var, yeni kupon yayinlaniyor", flush=True)
     due = not keys or busted or (day0 - datetime.strptime(keys[-1][:10], "%Y-%m-%d")).days >= MOLLA_DAYS
-    if keys and "ac" not in state["coupons"][keys[-1]]:
-        due = True                                   # ajan heyetine gecis: guncel kupon bir kez yeniden kurulur
+    if keys and ("ac" not in state["coupons"][keys[-1]] or state["coupons"][keys[-1]].get("cv") != 2):
+        due = True                                   # tutarli karar zincirine gecis: guncel kupon bir kez yeniden kurulur
 
     def penalty(m):
         lg = LGMAP[m["lg"]]
@@ -1792,6 +1892,8 @@ def molla(matches, done_by_id, src_team, use):
             rep_[a_] = [dict(base(m), k=k, o=m["o"][k], p=v) for v, k, m in rows]
 
         def sprob(m):
+            if m["p"].get("sp"):
+                return m["p"]["sp"]
             sc = m["p"]["score"]
             return next((x[2] for x in m["p"]["top"] if x[:2] == sc), m["p"]["top"][0][2])
 
@@ -1808,6 +1910,7 @@ def molla(matches, done_by_id, src_team, use):
                 cpn["sys"] = {"k": need, "picks": [arec(x) for x in by_date(sy)]}
             cpn.update(extra_coupons(pool, base))
             cpn["xk"] = 2
+            cpn["cv"] = 2
             key = today
             n_ = 0
             while key in state["coupons"]:                # ayni gun ikinci kupon: 2026-11-17b, c ...
@@ -2412,6 +2515,9 @@ def main():
             w = (0.75 if lg["cup"] else 0.5) if b365 else (0.9 if lg["cup"] else 0.6)
             lh, la = w * mh + (1 - w) * lh, w * ma + (1 - w) * la
         p = predict(lh, la)
+        sc_, sp_, _ = consistent_score(full_matrix(lh, la))
+        p["score"], p["sp"] = sc_, round(sp_, 4)
+        p["ht"] = consistent_ht(lh, la, sc_)
         mk, ss = {}, {"ms": ref_name}
         if ref:
             mk.update({k: ref[k] for k in ("1", "X", "2")})
@@ -2465,7 +2571,25 @@ def main():
         if fnl:
             rec["fn"] = [fnl[0], fnl[1]]
             rec["agx"] = {"rest": fnl[2], "out": fnl[3]}
+        # Analiz365 = analizci heyetinin agirlikli ortak dagilimi (tek kaynak)
+        lam_ = {}
+        pv_ = agent_probs(rec, lam_)
+        if lam_:
+            p = rec["p"] = committee_p(lam_, {a: v for a, v in pv_.items() if a in lam_})
+            pv0 = _pvec(p)
+            for grp, ks_ in (("ms", ("1", "X", "2")), ("dc", ("1X", "12", "X2")), ("ou15", ("O1.5", "U1.5")),
+                             ("ou25", ("O2.5", "U2.5")), ("ou35", ("O3.5", "U3.5")), ("kg", ("KGV", "KGY"))):
+                if ss.get(grp, "model") == "model":    # site orani olmayan pazarlar heyetin olasiligindan
+                    for k_ in ks_:
+                        mk[k_] = odd(pv0[k_])
+            hp_iy, hp_hf = half_probs(p["lh"], p["la"])
+            if rec["xo"]["s"][0] == "model":
+                rec["xo"]["iy"] = [odd(x) for x in hp_iy]
+            if rec["xo"]["s"][1] == "model":
+                rec["xo"]["hf"] = [odd(x) for x in hp_hf]
+            rec["xp"] = {"iy": [round(x, 3) for x in hp_iy], "hf": [round(x, 3) for x in hp_hf]}
         rec["ag"] = agent_best(rec)
+        rec["cons"] = analiz_tip(rec)
         matches.append(rec)
 
     cutoff = NOW - timedelta(days=RESULT_DAYS)

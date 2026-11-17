@@ -175,6 +175,11 @@
   }
   function tipOf(m) {
     if (m._tip) return m._tip;
+    if (m.cons && m.o[m.cons.k]) {                 // Analiz365 tahmini: tahmini skorla tutarli, sunucuda hesaplanir
+      const b = { k: m.cons.k, p: m.cons.p, o: m.o[m.cons.k] };
+      b.stars = b.p >= .75 ? 5 : b.p >= .66 ? 4 : b.p >= .57 ? 3 : b.p >= .48 ? 2 : 1;
+      return (m._tip = b);
+    }
     if (m.sport === 'bb') {
       const k0 = m.p.p1 >= .5 ? '1' : '2', x = m.tip || { k: k0, p: Math.max(m.p.p1, m.p.p2), o: m.o[k0] };
       const b = { k: x.k, p: x.p, o: x.o || m.o[x.k] };
@@ -801,7 +806,7 @@
         <div class="mtime num">${wd === true ? `<span class="md">${shortDate(m.d)}</span>` : ''}${timeOf(m.d)}</div>
         <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div>
           ${p.lh != null ? `<div class="xgr num" title="${esc(t('xg_tip'))}">xG <b>${x2(p.lh)}–${x2(p.la)}</b></div>` : ''}
-          ${c && c.n >= 2 ? `<div class="xgr agh">${t('ag_cons')}: <b>${esc(mkLabel(c.k, m))}</b> · ${m.o[c.k].toFixed(2)} · ${c.n}/5</div>` : ''}</div>
+          ${c && (c.srv || c.n >= 2) ? `<div class="xgr agh">${t('ag_cons')}: <b>${esc(mkLabel(c.k, m))}</b> · ${m.o[c.k].toFixed(2)} · ${c.n}/5</div>` : ''}</div>
       </a>
       <div class="og c3 ms">${ob(m, '1')}${ob(m, 'X')}${ob(m, '2')}</div>
       <div class="og c2 ou">${ob(m, 'U2.5', t('under'))}${ob(m, 'O2.5', t('over'))}</div>
@@ -831,6 +836,7 @@
   // ortak karar: analizcilerin en cok birlestigi secim
   function agCons(m) {
     if (m.sport === 'bb') return m.tip && m.tip.ag && m.o[m.tip.k] ? { k: m.tip.k, n: m.tip.v } : null;
+    if (m.cons && m.o[m.cons.k]) return { k: m.cons.k, n: m.cons.v, srv: 1 };   // sunucunun tutarli karari
     const n = {}; AGENTS.forEach(([a]) => { const x = (m.ag || {})[a]; if (x && m.o[x[0]]) n[x[0]] = (n[x[0]] || 0) + 1; });
     const top = Object.keys(n).sort((x, y) => n[y] - n[x])[0];
     return top ? { k: top, n: n[top] } : null;
@@ -848,7 +854,7 @@
       const x = (m.ag || {})[a], nm = bb ? t('agb_' + a + '_s') : t('ag_' + a);
       if (!x || !m.o[x[0]]) return `<div class="agtile na" title="${esc(agName(a, bb))}: ${esc(t('ag_na'))}">${agAv(a, bb, ic)}<span class="nm">${esc(nm)}</span><b>–</b><small>&nbsp;</small></div>`;
       const v = x[1], lv = a === 'vr' ? (v >= .03 ? 'hi' : v >= -.03 ? 'mid' : 'lo') : (v >= .65 ? 'hi' : v >= .55 ? 'mid' : 'lo');
-      return `<div class="agtile ${lv}${c && c.n >= 2 && c.k === x[0] ? ' agr' : ''}" title="${esc(agName(a, bb))}: ${esc(mkLabel(x[0], m))}">${agAv(a, bb, ic)}<span class="nm">${esc(nm)}</span><b>${esc(shortLab(x[0], m))}</b><small class="num">${agVal(a, v)}</small></div>`;
+      return `<div class="agtile ${lv}${c && (c.srv || c.n >= 2) && c.k === x[0] ? ' agr' : ''}" title="${esc(agName(a, bb))}: ${esc(mkLabel(x[0], m))}">${agAv(a, bb, ic)}<span class="nm">${esc(nm)}</span><b>${esc(shortLab(x[0], m))}</b><small class="num">${agVal(a, v)}</small></div>`;
     }).join('')}</div>`;
   }
   function agScoreStrip(bb) {
@@ -872,7 +878,7 @@
       <div>${pbar(p)}<div class="anl3"><span>1</span>${bb ? '' : '<span>X</span>'}<span>2</span></div></div>
       <div class="anst">${stats}</div>
       ${agTiles(m)}
-      ${c && c.n >= 2 ? `<div class="anf"><span class="pill">${t('ag_cons')}</span><b>${esc(mkLabel(c.k, m))}</b><span class="num od">${m.o[c.k].toFixed(2)}</span><span class="num vt">${c.n}/5</span></div>` : ''}
+      ${c && (c.srv || c.n >= 2) ? `<div class="anf"><span class="pill">${t('ag_cons')}</span><b>${esc(mkLabel(c.k, m))}</b><span class="num od">${m.o[c.k].toFixed(2)}</span><span class="num vt">${c.n}/5</span></div>` : ''}
     </a>`;
   }
   function viewAnalysis() {
@@ -945,7 +951,8 @@
 
   function axModel(m) {
     const ag = m.ag || {}, o = m.o || {}, ss = m.ss || {}, A = {};
-    A.st = { lam: [m.p.lh, m.p.la], p: Object.assign({}, m.p, { top: (m.p.top || []).slice(0, 3) }) };
+    A.st = ag.st && ag.st[2] != null ? { lam: [ag.st[2], ag.st[3]], p: axPredict(ag.st[2], ag.st[3]) }
+      : { lam: [m.p.lh, m.p.la], p: Object.assign({}, m.p, { top: (m.p.top || []).slice(0, 3) }) };
     if (ag.fn && ag.fn[2] != null) A.fn = { lam: [ag.fn[2], ag.fn[3]], p: axPredict(ag.fn[2], ag.fn[3]) };
     const real = !!(m.src && m.src !== 'model' && o['1'] && o.X && o['2']);
     if (real) {
@@ -966,7 +973,8 @@
     }
     Object.keys(A).forEach(a => { if (!A[a].v) A[a].v = axVec(A[a].p); });
     const ks = AX_KEYS.filter(k => o[k] && o[k] >= 1.3), voters = AX_VOTE.filter(a => A[a]);
-    const cons = k => voters.reduce((s, a) => s + A[a].v[k], 0) / (voters.length || 1);
+    const agw = D.agw || {}, wt = a => agw[a] || 1, twt = voters.reduce((s, a) => s + wt(a), 0) || 1;
+    const cons = k => voters.reduce((s, a) => s + wt(a) * A[a].v[k], 0) / twt;   // sunucudaki heyet agirliklariyla
     voters.forEach(a => { const x = A[a]; x.k = ag[a] && o[ag[a][0]] ? ag[a][0] : ks.slice().sort((p, q) => x.v[q] - x.v[p])[0]; });
     let vr = null;
     const risky = { src: m.src === 'model', fr: m.lg === 'fifa.friendly', few: voters.length < 3 };
