@@ -893,3 +893,7 @@ button.morebtn{cursor:pointer;width:100%}
 .ls.win,.ls.on.win{color:var(--pri)}
 .ls.lose,.ls.on.lose{color:#ff6b6b}
 .aknx .akc{box-shadow:0 0 0 1px rgba(18,196,139,.45)}
+
+/* ---------- v16: denetim duzeltmeleri ---------- */
+.fav{position:relative}
+.fav::after{content:"";position:absolute;left:50%;top:50%;width:36px;height:36px;transform:translate(-50%,-50%)}

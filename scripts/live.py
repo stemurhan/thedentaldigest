@@ -108,11 +108,11 @@ def publish(url, key):
             return r.status
 
     ev = build()
-    if not ev:                                      # mac yoksa: dosyada canli kayit kaldiysa bir kez bosalt
-        old = get(f"{url}/storage/v1/object/public/live/live.json?t={int(NOW.timestamp())}") or {}
-        if not old.get("ev"):
-            print("canli: oynanan mac yok")
-            return
+    old = get(f"{url}/storage/v1/object/public/live/live.json?t={int(NOW.timestamp())}")
+    if not ev and old is not None and not old.get("ev"):   # mac yok ve dosya zaten bos: dokunma
+        print("canli: oynanan mac yok")
+        return
+    # dosya hic yoksa (old None) mac olmasa da kova ve bos dosya olusturulur
     body = json.dumps(payload(ev), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     try:
         call("/storage/v1/bucket", "POST", json.dumps({"id": "live", "name": "live", "public": True}).encode())

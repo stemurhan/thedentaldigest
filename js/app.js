@@ -385,7 +385,8 @@
     const xs = mk === 'main' ? XK.filter(x => kPicks(c, x).length) : [];
     return `<div class="pagehead"><h1>${t('tipc_title')}</h1><small class="num">${cRange(c)}</small></div>
       <div class="aktabs" role="tablist">${TAB.map(([k, ic, h]) => `<button role="tab" aria-selected="${mk === k}" class="${mk === k ? 'on' : ''}" data-mk="${k}"><i>${ic}</i><b>${t(h)}</b></button>`).join('')}</div>
-      ${per.length > 1 ? `<div class="chips akper">${per.map(x => `<button class="chip ${x === c ? 'on' : ''}" data-mp="${x.date}">${cRange(x)}</button>`).join('')}</div>` : ''}
+      ${per.length > 1 ? `<div class="chips akper">${per.map((x, i) => { const dup = per.slice(0, i).some(y => cRange(y) === cRange(x));
+        return `<button class="chip ${x === c ? 'on' : ''}" data-mp="${x.date}">${cRange(x)}${dup ? ` · ${t('ak_prev')}` : ''}</button>`; }).join('')}</div>` : ''}
       ${mk === 'main' && c === MOLLA.coupons[0] && nextC() ? `<div class="akg aknx">${akCard(nextC(), 'main', 'all', '🔄 ' + t('m_next_title'))}</div><p class="note akxn">${t('m_next_note')}</p>` : ''}
       <div class="akg">${owners.map(o => akCard(c, mk, o)).join('')}</div>
       ${xs.length ? `<h2 class="dayhead akxh">🧩 ${t('xk_title')}</h2><p class="note akxn">${t('xk_note')}</p>
@@ -2000,7 +2001,7 @@
   // zaman asimli istek: erisilemeyen bir kaynak canli yenilemeyi kilitlemesin
   const tfetch = (u, ms) => { const c = new AbortController(), tm = setTimeout(() => c.abort(), ms || 9000);
     return fetch(u, { signal: c.signal, cache: 'no-store' }).finally(() => clearTimeout(tm)); };
-  const espnAt = {}, srvAt = {};
+  const espnAt = {}, srvAt = {}, srvBad = {};
   const SRV_LIVE = [((window.AHAL_CFG || {}).supabaseUrl || '').replace(/\/$/, '') + '/storage/v1/object/public/live/live.json', 'data/live.json'].filter(u => !/^\/storage/.test(u));
   // sunucu yedegi (data/live.json): ESPN'e ulasilamayan aglarda skor buradan gelir; dakika, dosyanin yasina gore ilerletilir
   function applySrv(j) {
@@ -2037,7 +2038,8 @@
       const lg = isBB(m) ? 'nba' : m.lg, t0 = new Date(m.d).getTime();
       (want[lg] = want[lg] || new Set()).add(ymd(t0)).add(ymd(t0 - 6 * 3600e3));
     });
-    if (Object.keys(want).length) SRV_LIVE.forEach(u => jobs.push(tfetch(u + '?t=' + Date.now(), 7000).then(r => (r.ok ? r.json() : null)).then(applySrv).catch(() => { })));
+    if (Object.keys(want).length) SRV_LIVE.filter(u => !(srvBad[u] > Date.now())).forEach(u => jobs.push(tfetch(u + '?t=' + Date.now(), 7000)
+      .then(r => { if (r.ok) return r.json(); srvBad[u] = Date.now() + 15 * 60e3; return null; }).then(applySrv).catch(() => { srvBad[u] = Date.now() + 5 * 60e3; })));
     Object.keys(want).forEach(lg => want[lg].forEach(day => {
       const path = lg === 'nba' ? 'basketball/nba' : 'soccer/' + lg;
       jobs.push(tfetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${day}&limit=200`).then(r => r.json()).then(d => {
