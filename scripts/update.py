@@ -1420,9 +1420,11 @@ def own_coupons(pool, base):
 
 
 # ---- Devre ve skor kuponlari: ajanlarin ortak karariyla (ilk yari sonucu, ikinci yari sonucu, mac skoru) ----
-XK_TYPES = ("iy", "y2", "sk")
-XK_N = {"iy": 3, "y2": 3, "sk": 3}     # her kupondaki mac sayisi
-XK_NEED = 0.42                          # devre secenegi icin bir ajanin onay esigi
+XK_TYPES = ("hf", "sk")               # ilk yari / mac sonucu (IY/MS) ve mac skoru
+XK_ALL = ("iy", "y2", "hf", "sk")       # sonuclandirma: eski (ayri ilk yari / ikinci yari) kuponlar da
+XK_N = {"hf": 3, "sk": 3}               # her kupondaki mac sayisi
+XK_NEED = 0.30                          # IY/MS secenegi icin bir ajanin onay esigi
+HF_KEYS = ["1/1", "1/X", "1/2", "X/1", "X/X", "X/2", "2/1", "2/X", "2/2"]
 HALF_F = 0.45                           # gollerin ilk yariya dusen payi (half_probs ile ayni)
 
 
@@ -1431,6 +1433,11 @@ def wins_x(k, e):
     if k[:1] == "S" and "-" in k:
         a, b = k[1:].split("-")
         return [e["hs"], e["as"]] == [int(a), int(b)]
+    if k[:2] == "HF":                       # IY/MS: ilk yari sonucu / mac sonucu
+        if not e.get("h1"):
+            return None
+        a, b = k[2:].split("/")
+        return wins(a, *e["h1"]) and wins(b, e["hs"], e["as"])
     if k[:2] in ("IY", "2Y"):
         hv = e.get("h1") if k[:2] == "IY" else e.get("h2")
         return wins(k[2:], *hv) if hv else None
@@ -1454,8 +1461,8 @@ def _score_mat(lh, la):
 
 
 def extra_coupons(pool, base):
-    """Ilk yari / ikinci yari / mac skoru kuponlari. Her ajan kendi gol beklentisinden devre ve skor olasiligi
-    uretir; piyasa ajani ilk yari icin Nesine orani varsa onu kullanir. Ortak olasilik agirlikli ortalamadir;
+    """IY/MS ve mac skoru kuponlari. Her ajan kendi gol beklentisinden IY/MS ve skor olasiligi uretir;
+    piyasa ajani IY/MS icin Nesine orani varsa onu kullanir. Ortak olasilik agirlikli ortalamadir;
     secim, en cok ajanin onayladigi (sonra ortak olasiligi en yuksek) maclardan kurulur."""
     cand = {x: [] for x in XK_TYPES}
     for m in pool:
@@ -1468,40 +1475,35 @@ def extra_coupons(pool, base):
         if len(ags) < 3:
             continue
         xo = m.get("xo") or {}
-        iy_real = (xo.get("s") or ["model"])[0] != "model" and xo.get("iy")
         W = {a: AG_W.get(a, 1.0) for a in ags}
         tw = sum(W.values())
         risky = m.get("src") == "model"
         bonus = 0.02 if not risky else 0.0
-        for typ in ("iy", "y2"):
-            pa = {}
-            for a in ags:
-                lh, la = lam[a]
-                if typ == "iy":
-                    pa[a] = half_probs(lh, la, HALF_F)[0]
-                    if a == "mk" and iy_real:
-                        inv = [1 / x for x in xo["iy"]]
-                        pa[a] = [x / sum(inv) for x in inv]
-                else:
-                    pa[a] = _res3(lh * (1 - HALF_F), la * (1 - HALF_F))
-            best = None
-            for i, r in enumerate(("1", "X", "2")):
-                cons = sum(W[a] * pa[a][i] for a in ags) / tw
-                o = (xo.get("iy") or [None] * 3)[i] if typ == "iy" else None
-                o = o or odd(cons)
-                if o < 1.3 or cons < XK_NEED:
-                    continue
-                row = [[round(pa[a][i], 3), int(pa[a][i] >= XK_NEED)] if a in pa else None for a in VOTE_AGENTS]
-                ev = cons * o - 1
-                row.append([round(ev, 3), int(ev >= -0.08 and not risky)])
-                v = sum(x[1] for x in row if x)
-                key = (v, cons + bonus)
-                if best is None or key > best[0]:
-                    best = (key, ("IY" if typ == "iy" else "2Y") + r, o, cons, v, row)
-            if best:
-                cand[typ].append((best[0], dict(base(m), k=best[1], o=round(best[2], 2), p=round(best[3], 3),
-                                                sc=m["p"]["score"], v=best[4], ag=best[5],
-                                                os="Nesine" if typ == "iy" and iy_real else "model")))
+        # IY/MS: her ajanin gol beklentisinden 9 sonucun olasiligi; piyasa ajani Nesine IY/MS orani varsa onu kullanir
+        hf_real = (xo.get("s") or ["model", "model"])[-1] != "model" and xo.get("hf")
+        pa = {}
+        for a in ags:
+            pa[a] = half_probs(lam[a][0], lam[a][1], HALF_F)[1]
+            if a == "mk" and hf_real:
+                inv = [1 / x for x in xo["hf"]]
+                pa[a] = [x / sum(inv) for x in inv]
+        best = None
+        for i, r in enumerate(HF_KEYS):
+            cons = sum(W[a] * pa[a][i] for a in ags) / tw
+            o = (xo.get("hf") or [None] * 9)[i] or odd(cons)
+            if o < 1.3 or cons < XK_NEED:
+                continue
+            row = [[round(pa[a][i], 3), int(pa[a][i] >= XK_NEED)] if a in pa else None for a in VOTE_AGENTS]
+            ev = cons * o - 1
+            row.append([round(ev, 3), int(ev >= -0.08 and not risky)])
+            v = sum(x[1] for x in row if x)
+            key = (v, cons + bonus)
+            if best is None or key > best[0]:
+                best = (key, "HF" + r, o, cons, v, row)
+        if best:
+            cand["hf"].append((best[0], dict(base(m), k=best[1], o=round(best[2], 2), p=round(best[3], 3),
+                                            sc=m["p"]["score"], v=best[4], ag=best[5],
+                                            os="Nesine" if hf_real else "model")))
         # mac skoru: ortak skor matrisinin en olasi skoru; onay = kendi en olasi skoru ayni olan ajanlar
         mats = {a: _score_mat(*lam[a]) for a in ags}
         cm = [[sum(W[a] * mats[a][i][j] for a in ags) / tw for j in range(6)] for i in range(6)]
@@ -1530,7 +1532,7 @@ def extra_coupons(pool, base):
 def coupon_picks(c):
     """Bir donemin tum kuponlarindaki secimler (ortak + analizcilerin kendi kuponlari + devre / skor kuponlari)."""
     out = list(c["picks"]) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", [])
-    for x in XK_TYPES:
+    for x in XK_ALL:
         out += (c.get(x) or {}).get("picks", [])
     for own in (c.get("ac") or {}).values():
         out += own.get("main", []) + own.get("hi", []) + (own.get("sys") or {}).get("picks", [])
@@ -1569,8 +1571,8 @@ def molla(matches, done_by_id, src_team, use):
             if e and "res" not in pk:
                 pk["res"] = [e["hs"], e["as"]]
                 pk["ok"] = wins_x(pk["k"], e)
-                if pk["k"][:2] in ("IY", "2Y") and e.get("h1"):
-                    pk["hr"] = e["h1"] if pk["k"][:2] == "IY" else e["h2"]
+                if pk["k"][:2] in ("IY", "2Y", "HF") and e.get("h1"):
+                    pk["hr"] = e["h2"] if pk["k"][:2] == "2Y" else e["h1"]
         for sc in c.get("scores", []):
             e = done_by_id.get(sc["id"])
             if e and "res" not in sc:
@@ -1724,7 +1726,7 @@ def molla(matches, done_by_id, src_team, use):
             if len(sy) >= need + 1:
                 cpn["sys"] = {"k": need, "picks": [arec(x) for x in by_date(sy)]}
             cpn.update(extra_coupons(pool, base))
-            cpn["xk"] = 1
+            cpn["xk"] = 2
             state["coupons"][today] = cpn
             print(f"   MollaMyrat ajan heyeti: {len(pool)} mac tarandi -> banko {len(picks)}, "
                   f"surpriz {len(hi or [])}, sistem {len(sy) if len(sy) >= need + 1 else 0}", flush=True)
@@ -1745,10 +1747,15 @@ def molla(matches, done_by_id, src_team, use):
                     cur["sys"] = sc_
     # 2c) devre ve skor kuponlari (guncel kuponda yoksa bir kez uretilir; baslamis maclar alinmaz)
     keys = sorted(state["coupons"])
-    if keys and "xk" not in state["coupons"][keys[-1]]:
+    if keys and state["coupons"][keys[-1]].get("xk", 0) < 2:
         cur = state["coupons"][keys[-1]]
-        cur.update(extra_coupons(window(keys[-1]), base))
-        cur["xk"] = 1
+        cur.pop("iy", None)                          # ayri ilk yari / ikinci yari kuponlari IY/MS kuponuyla degisti
+        cur.pop("y2", None)
+        ex = extra_coupons(window(keys[-1]), base)
+        for x in XK_TYPES:
+            if x not in cur and x in ex:             # mevcut skor kuponu korunur
+                cur[x] = ex[x]
+        cur["xk"] = 2
     # 3) eski kayitlari at, kaydet
     keep = (NOW - timedelta(days=400)).strftime("%Y-%m-%d")
     state["coupons"] = {k: v for k, v in state["coupons"].items() if k >= keep}

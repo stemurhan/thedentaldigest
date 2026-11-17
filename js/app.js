@@ -133,8 +133,8 @@
   const srcName = s => (s === 'model' ? 'Analiz365' : s);
   const srcBadge = s => `<span class="srcb ${s === 'model' ? 'm' : ''}">${esc(srcName(s))}</span>`;
 
-  const XK = ['iy', 'y2', 'sk'];                       // devre ve skor kuponlari (ajanlarin ortak karari)
-  const xLab = k => (/^IY/.test(k) ? t('xk_iy') + ': ' + k.slice(2) : /^2Y/.test(k) ? t('xk_y2') + ': ' + k.slice(2) : /^S\d/.test(k) ? t('xk_sk') + ': ' + k.slice(1) : null);
+  const XK = ['hf', 'sk'];                       // devre ve skor kuponlari (ajanlarin ortak karari)
+  const xLab = k => (/^HF/.test(k) ? t('xk_hf') + ': ' + k.slice(2) : /^IY/.test(k) ? t('xk_iy') + ': ' + k.slice(2) : /^2Y/.test(k) ? t('xk_y2') + ': ' + k.slice(2) : /^S\d/.test(k) ? t('xk_sk') + ': ' + k.slice(1) : null);
   function mkLabel(k, m, line) {
     if (xLab(k)) return xLab(k);
     const l = line != null ? line : (m || {}).line;
@@ -278,7 +278,7 @@
   // sonuc: veri betiginin isledigi ya da canli akistan gelen mac sonucu
   function pkOk(pk, score) {
     if (pk.ok !== undefined) return pk.ok;
-    if (/^(IY|2Y)/.test(pk.k || '')) return null;          // devre sonucu canli akistan bilinmez
+    if (/^(IY|2Y|HF)/.test(pk.k || '')) return null;          // devre sonucu canli akistan bilinmez
     const r = RES[pk.id];
     if (!r) return null;
     return score ? (r.hs === pk.sc[0] && r.as === pk.sc[1]) : wins(pk.k, r.hs, r.as);
@@ -346,7 +346,7 @@
       ${c.picks.some(pkLive) ? `<button class="btn" data-act="tipadd" data-cdate="${c.date}">${t('tipc_add')}</button>` : ''}
       ${hiOf(c) ? `<button type="button" class="tipx" data-mk="hi" data-mgo="1"><span>🔥 ${t('m_k_hi')} · ${hiOf(c).picks.length} ${t('selections')}</span><b class="num">${prodO(hiOf(c).picks).toFixed(2)}</b></button>` : ''}
       ${sysOf(c) ? `<button type="button" class="tipx" data-mk="sys" data-mgo="1"><span>🎯 ${t('m_k_sys')}</span><b class="num">${sysOf(c).k}/${sysOf(c).picks.length}</b></button>` : ''}
-      ${[['iy', '⏱️'], ['y2', '⏳'], ['sk', '🔢']].map(([x, ic]) => { const pk = kPicks(c, x); return pk.length ? `<button type="button" class="tipx" data-mk="${x}" data-mgo="1"><span>${ic} ${t('m_k_' + x)} · ${pk.length} ${t('selections')}</span><b class="num">${prodO(pk).toFixed(2)}</b></button>` : ''; }).join('')}
+      ${[['hf', '🧩'], ['sk', '🔢']].map(([x, ic]) => { const pk = kPicks(c, x); return pk.length ? `<button type="button" class="tipx" data-mk="main" data-mgo="1"><span>${ic} ${t('m_k_' + x)} · ${pk.length} ${t('selections')}</span><b class="num">${prodO(pk).toFixed(2)}</b></button>` : ''; }).join('')}
       <a class="btn ghost" href="#/mollamyrat">${t('m_track')} →</a></div></div>`;
   }
   // ---------- Analiz Kuponlari: ortak kupon + bes analizcinin kendi kuponlari (yalnizca kuponlar) ----------
@@ -354,11 +354,11 @@
   const agAv = (a, bb, ic) => (bb ? `<i class="av emo">${ic}</i>` : a === 'all' ? '<i class="av a-all">★</i>' : `<i class="av a-${a}">${esc(t('ag_' + a).slice(0, 1))}</i>`);
   function akRow(pk, joint) {
     const res = pkRes(pk), tag = MATCH[pk.id] ? 'a' : 'div';
-    return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${pk.hr ? ' · ' + t(/^IY/.test(pk.k) ? 'xk_iy_s' : 'xk_y2_s') + ' <b class="res">' + pk.hr[0] + '-' + pk.hr[1] + '</b>' : ''}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}${pk.os === 'model' && /^(IY|2Y|S\d)/.test(pk.k) ? ' · <span class="srcb m">Analiz365</span>' : ''}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
+    return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${pk.hr ? ' · ' + t(/^(IY|HF)/.test(pk.k) ? 'xk_iy_s' : 'xk_y2_s') + ' <b class="res">' + pk.hr[0] + '-' + pk.hr[1] + '</b>' : ''}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}${pk.os === 'model' && /^(IY|2Y|HF|S\d)/.test(pk.k) ? ' · <span class="srcb m">Analiz365</span>' : ''}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
   }
-  function akCard(c, mk, own) {
+  function akCard(c, mk, own, ttl) {
     const pk = kPicks(c, mk, own), joint = own === 'all', r = joint ? null : (D.agacc || {})[own];
-    const who = `${agAv(own)}<div class="akw"><b>${joint ? t('ac_joint') : t('ag_' + own)}</b><small>${t(joint ? 'ak_joint_s' : 'ag_' + own + '_r')}${r && r[0] ? ` · <span class="num">${pct(r[1] / r[0])}%</span>` : ''}</small></div>`;
+    const who = `${agAv(own)}<div class="akw"><b>${joint ? ttl || t('ac_joint') : t('ag_' + own)}</b><small>${t(joint ? 'ak_joint_s' : 'ag_' + own + '_r')}${r && r[0] ? ` · <span class="num">${pct(r[1] / r[0])}%</span>` : ''}</small></div>`;
     if (!pk.length) return `<div class="card akc none"><div class="akh">${who}</div><div class="akn">${t('ak_none')}</div></div>`;
     const at = `data-cdate="${c.date}" data-ck="${mk}" data-own="${own}"`, tot = prodO(pk), sy = mk === 'sys' ? sysInfo({ k: sysK(c, own), picks: pk }) : null;
     const st = sy ? sy.st : cpnState(pk).st;
@@ -371,14 +371,15 @@
   function viewMolla() {
     const per = MOLLA.coupons.filter(x => x.ac), c = per.find(x => x.date === flt.mp) || per[0] || MOLLA.coupons[0];
     if (!c) return `<div class="pagehead"><h1>${t('tipc_title')}</h1></div><div class="card empty">${t('m_none')}</div>`;
-    const mk = ['main', 'hi', 'sys'].concat(XK).includes(flt.mk) ? flt.mk : 'main', xk = XK.includes(mk);
-    const owners = xk ? ['all'] : ['all'].concat(AGENTS.map(x => x[0]));
-    const TAB = [['main', '★', 'ak_h_main'], ['hi', '🔥', 'ak_h_hi'], ['sys', '🎯', 'ak_h_sys'], ['iy', '⏱️', 'ak_h_iy'], ['y2', '⏳', 'ak_h_y2'], ['sk', '🔢', 'ak_h_sk']];
+    const mk = ['main', 'hi', 'sys'].includes(flt.mk) ? flt.mk : 'main', owners = ['all'].concat(AGENTS.map(x => x[0]));
+    const TAB = [['main', '★', 'ak_h_main'], ['hi', '🔥', 'ak_h_hi'], ['sys', '🎯', 'ak_h_sys']];
+    const xs = mk === 'main' ? XK.filter(x => kPicks(c, x).length) : [];
     return `<div class="pagehead"><h1>${t('tipc_title')}</h1><small class="num">${cRange(c)}</small></div>
       <div class="aktabs" role="tablist">${TAB.map(([k, ic, h]) => `<button role="tab" aria-selected="${mk === k}" class="${mk === k ? 'on' : ''}" data-mk="${k}"><i>${ic}</i><b>${t(h)}</b></button>`).join('')}</div>
       ${per.length > 1 ? `<div class="chips akper">${per.map(x => `<button class="chip ${x === c ? 'on' : ''}" data-mp="${x.date}">${cRange(x)}</button>`).join('')}</div>` : ''}
-      ${xk ? `<p class="note akxn">${t('xk_note_' + mk)}</p>` : ''}
-      <div class="akg${xk ? ' one' : ''}">${owners.map(o => akCard(c, mk, o)).join('')}</div>`;
+      <div class="akg">${owners.map(o => akCard(c, mk, o)).join('')}</div>
+      ${xs.length ? `<h2 class="dayhead akxh">🧩 ${t('xk_title')}</h2><p class="note akxn">${t('xk_note')}</p>
+      <div class="akg">${xs.map(x => akCard(c, x, 'all', t('m_k_' + x))).join('')}</div>` : ''}`;
   }
 
   // ---------- favori karti, bildirimler ----------

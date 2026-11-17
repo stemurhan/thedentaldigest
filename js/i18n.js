@@ -858,3 +858,16 @@ Object.assign(window.I18N.tk, {
   xk_note_y2: 'Bäş agentiň umumy kupony: diňe ikinji ýarymda geçirilen gollar hasaplanýar. Her agent garaşylýan gollarynyň %55-ini ikinji ýarym üçin alýar; iň köp tassyklanan oýunlar girýär. Koeffisiýentler Analiz365 hasaplamasy.',
   xk_note_sk: 'Bäş agentiň umumy kupony: agentleriň hasap tablisalary birleşdirilýär, iň ähtimal umumy hasap saýlanýar. Tassyklama — öz iň ähtimal hasaby gabat gelen agentleriň sany. Takyk hasap kyn bazar; koeffisiýentler Analiz365 hasaplamasy.'
 });
+/* Banko sayfasi: IY/MS ve mac skoru ortak kuponlari */
+Object.assign(window.I18N.tr, {
+  xk_hf: 'İY/MS', m_k_hf: 'İY/MS kuponu', xk_title: 'İY/MS ve Skor Kuponları',
+  xk_note: 'Beş ajanın ortak kuponları. İY/MS: her ajan kendi gol beklentisinin %45\'ini ilk yarıya verip "ilk yarı / maç sonu" olasılığını hesaplar (piyasa ajanı varsa sitenin İY/MS oranını kullanır); kupona en çok onay alan, ortak olasılığı en yüksek maçlar girer. Skor: ajanların skor tabloları birleştirilip ortak en olası skor seçilir. Site oranı olmayanlarda oran Analiz365 hesaplamasıdır.'
+});
+Object.assign(window.I18N.ru, {
+  xk_hf: 'Тайм/матч', m_k_hf: 'Купон тайм/матч', xk_title: 'Купоны тайм/матч и точный счёт',
+  xk_note: 'Общие купоны пяти агентов. Тайм/матч: каждый агент относит 45% ожидаемых голов к первому тайму и считает вероятность исхода «тайм / матч» (рыночный агент берёт коэффициент букмекера, если он есть); входят матчи с наибольшим числом одобрений. Счёт: таблицы счетов агентов объединяются, выбирается самый вероятный общий счёт. Где нет коэффициента букмекера, коэффициент рассчитан Analiz365.'
+});
+Object.assign(window.I18N.tk, {
+  xk_hf: 'Ýarym/Netije', m_k_hf: 'Ýarym/netije kupony', xk_title: 'Ýarym/netije we hasap kuponlary',
+  xk_note: 'Bäş agentiň umumy kuponlary. Ýarym/netije: her agent garaşylýan gollarynyň %45-ini birinji ýarym üçin alyp, «ýarym / oýun netijesi» ähtimallygyny hasaplaýar (bazar agenti bar bolsa saýtyň koeffisiýentini ulanýar); iň köp tassyklanan oýunlar girýär. Hasap: agentleriň hasap tablisalary birleşdirilip, iň ähtimal umumy hasap saýlanýar. Saýt koeffisiýenti ýok ýerlerde koeffisiýent Analiz365 hasaplamasy.'
+});
