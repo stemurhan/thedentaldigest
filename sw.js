@@ -1,5 +1,5 @@
 // Analiz365 servis calisani: once ag, olmazsa onbellek (bulten her zaman guncel kalsin).
-const CACHE = 'analiz365-v38';
+const CACHE = 'analiz365-v39';
 const SHELL = ['./', 'index.html', 'css/style.css', 'js/config.js', 'js/i18n.js', 'js/app.js', 'img/icon.svg', 'manifest.json'];
 
 self.addEventListener('install', e => {

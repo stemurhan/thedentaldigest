@@ -1675,6 +1675,7 @@
       <div class="kpi"><small>${t('c_played')}</small><b>${nSince}</b></div>
       <div class="kpi"><small>${t('f_tip')}</small><b style="color:var(--pri)">${wp.length ? tipOk + '/' + wp.length : '–'}</b></div>
       <div class="kpi"><small>${t(bb ? 'f_win' : 'f_sc')}</small><b style="color:var(--gold)">${wp.length ? scOk + '/' + wp.length : '–'}</b></div>
+      ${!bb && A.n3 ? `<div class="kpi"><small>${t('f_sc3')}</small><b style="color:var(--gold)">${A.sc3}/${A.n3}</b></div>` : ''}
       <div class="kpi"><small>${t('fin_30')}</small><b>${A.n ? pct(A.tip / A.n) + '%' : '–'}</b></div></div></div>`;
     // tum gunler alt alta (en yeni ustte); uzun liste parca parca acilir
     const lim = !bb && flt.lg !== 'all' ? days.length : flt.rlim;

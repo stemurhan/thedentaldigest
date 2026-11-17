@@ -92,7 +92,7 @@ HISTORY_START = "2025-08-01"   # aralarindaki maclar icin gecmis
 DAYS_AHEAD = 14                # bultende kac gun ilerisi
 DETAIL_DAYS = 8                # kadro + oyuncu istatistigi kac gun ilerisi icin
 RESULT_DAYS = 14               # sonuclar sayfasi / kupon sonuclandirma
-STATS_FROM = "2026-11-17T18:00Z"   # isabet istatistikleri bu andan (UTC) sonra baslayan maclarla sayilir (karne sifirlandi)
+STATS_FROM = "2026-11-17T19:00Z"   # isabet istatistikleri bu andan (UTC) sonra baslayan maclarla sayilir (karne sifirlandi)
 MARGIN = 1.07                  # site oranlarindaki pay (model oranlari)
 THREADS = 12
 FINAL = {"STATUS_FULL_TIME", "STATUS_FINAL_AET", "STATUS_FINAL_PEN"}
@@ -1040,7 +1040,7 @@ def tip_of(m):
 #   sh  Saha       : ev sahibinin ic saha, konugun deplasman sezon karnesi
 #   vr  Deger/Risk : diger ajanlarin ortak olasiligini oranla karsilastirir (beklenen getiri) + risk suzgeci
 # Dixon-Coles duzeltmesi (dusuk skor kombinasyonlari icin)
-DC_RHO = -0.10
+DC_RHO = -0.05
 def _dc_tau(i, j, lh, la, rho=DC_RHO):
     if i == 0 and j == 0:
         return 1 - lh * la * rho
@@ -1214,7 +1214,7 @@ def backtest_agents(done, days=45):
     Doner: {ajan: {"n", "hit" (mac sonucu isabeti), "ou" (2.5 alt/ust isabeti), "br" (Brier, dusuk iyi)}}."""
     res = {a: {"n": 0, "hit": 0, "ou": 0, "br": 0.0} for a in ("fn", "st", "fm")}
     start = NOW - timedelta(days=days)
-    seen, th = defaultdict(list), defaultdict(list)
+    seen, th, mxc = defaultdict(list), defaultdict(list), {}
     for e in sorted((x for x in done if x["dt"] >= SEASON_START), key=lambda x: x["dt"]):
         lid, hid, aid = e["lg"], e["h"]["id"], e["a"]["id"]
         lg = LGMAP[lid]
@@ -1235,7 +1235,12 @@ def backtest_agents(done, days=45):
                     pts += 3 if gf > ga else 1 if gf == ga else 0
                 return pts / (3 * len(g5))
 
-            lam["st"] = model_lambdas(st_, avg_h, avg_a, hid, aid, fr(hid), fr(aid))
+            fk = (lid, e["dt"].date())
+            if fk not in mxc:
+                mxc[fk] = maher_fit([g for g in seen[lid] if g["dt"] < e["dt"] - timedelta(hours=3)] or seen[lid], e["dt"])
+            mxl = maher_lambdas(mxc[fk], hid, aid)
+            if mxl:
+                lam["st"] = mxl
             gh, ga_ = th[hid][-6:][::-1], th[aid][-6:][::-1]
             if len(gh) >= 3 and len(ga_) >= 3:
                 def wavg(games, tid, scored):
@@ -1261,12 +1266,90 @@ def backtest_agents(done, days=45):
     return res
 
 
+# Behcet (Istatistik): zaman agirlikli Maher / Dixon-Coles modeli. Ligdeki tum maclardan her takimin hucum (a)
+# ve savunma (b) gucu, ev sahibi avantaji (g) ve lig gol seviyesi (mu) en cok olabilirlikle (Poisson) bulunur:
+#   ev beklenen gol = mu * g * a_ev * b_dep      deplasman beklenen gol = mu * a_dep * b_ev
+# Yeni maclar daha agir (120 gunde yari agirlik); her takima MX_K sanal ortalama mac eklenir (kucuk orneklem).
+# Geriye donuk testte (1394 lig maci) mac sonucu isabeti %49.6 -> %51.9 (eski istatistik modeline gore).
+MX_HALF, MX_K = 120.0, 6.0
+
+
+def maher_fit(games, ref, half=MX_HALF, K=MX_K, iters=25):
+    if len(games) < 10:
+        return None
+    w = [0.5 ** (max(0.0, (ref - g["dt"]).total_seconds()) / 86400 / half) for g in games]
+    teams = {x for g in games for x in (g["h"]["id"], g["a"]["id"])}
+    a = {t: 1.0 for t in teams}
+    b = {t: 1.0 for t in teams}
+    sw = sum(w)
+    hg = sum(wi * g["hs"] for wi, g in zip(w, games)) / sw
+    ag = sum(wi * g["as"] for wi, g in zip(w, games)) / sw
+    gam, mu = max(hg, 0.3) / max(ag, 0.3), max(ag, 0.3)
+    for _ in range(iters):
+        na, da = {t: K for t in teams}, {t: K for t in teams}
+        for wi, g in zip(w, games):
+            h, A = g["h"]["id"], g["a"]["id"]
+            na[h] += wi * g["hs"]
+            da[h] += wi * mu * gam * b[A]
+            na[A] += wi * g["as"]
+            da[A] += wi * mu * b[h]
+        a = {t: na[t] / da[t] for t in teams}
+        nb, db = {t: K for t in teams}, {t: K for t in teams}
+        for wi, g in zip(w, games):
+            h, A = g["h"]["id"], g["a"]["id"]
+            nb[A] += wi * g["hs"]
+            db[A] += wi * mu * gam * a[h]
+            nb[h] += wi * g["as"]
+            db[h] += wi * mu * a[A]
+        b = {t: nb[t] / db[t] for t in teams}
+        ma, mb = sum(a.values()) / len(a), sum(b.values()) / len(b)
+        a = {t: v / ma for t, v in a.items()}
+        b = {t: v / mb for t, v in b.items()}
+        eh = sum(wi * a[g["h"]["id"]] * b[g["a"]["id"]] for wi, g in zip(w, games))
+        ea = sum(wi * a[g["a"]["id"]] * b[g["h"]["id"]] for wi, g in zip(w, games))
+        mu = sum(wi * g["as"] for wi, g in zip(w, games)) / ea
+        gam = (sum(wi * g["hs"] for wi, g in zip(w, games)) / eh) / mu
+    return {"a": a, "b": b, "mu": mu, "g": gam}
+
+
+def maher_lambdas(fit, hid, aid):
+    if not fit or hid not in fit["a"] or aid not in fit["a"]:
+        return None
+    return (_clampl(fit["mu"] * fit["g"] * fit["a"][hid] * fit["b"][aid]),
+            _clampl(fit["mu"] * fit["a"][aid] * fit["b"][hid]))
+
+
+def form_lambdas(fh, fa, decay=0.80):
+    """Coskun (Form): son 6 macin atilan / yenen gol ortalamasi (yeni maclar daha agir)."""
+    if len(fh) < 3 or len(fa) < 3:
+        return None
+
+    def wavg(lst, key):
+        ws = [decay ** i for i in range(len(lst))]
+        return sum(w * x[key] for w, x in zip(ws, lst)) / sum(ws)
+
+    return (_clampl(0.5 * (wavg(fh, "gf") + wavg(fa, "ga")) * 1.10),
+            _clampl(0.5 * (wavg(fa, "gf") + wavg(fh, "ga")) * 0.92))
+
+
+# Analiz365 tahmininin model kismi: Behcet x2 + eski istatistik modeli + Form (geriye donuk testte en iyi Brier)
+BLEND_W = {"mx": 2.0, "old": 1.0, "fm": 1.0}
+
+
+def blend_lambdas(parts):
+    ks = [k for k in BLEND_W if parts.get(k)]
+    tw = sum(BLEND_W[k] for k in ks)
+    return (sum(BLEND_W[k] * parts[k][0] for k in ks) / tw, sum(BLEND_W[k] * parts[k][1] for k in ks) / tw)
+
+
 def agent_probs(m, lam=None):
     """Doner: {ajan: {secenek: olasilik}}; verisi yetmeyen ajan sozlukte yer almaz (cekimser).
     lam verilirse her ajanin gol beklentisi (ev, deplasman) oraya yazilir."""
-    out = {"st": _pvec(m["p"])}
+    out = {}
+    stl = tuple(m["mx"]) if m.get("mx") else (m["p"]["lh"], m["p"]["la"])
+    out["st"] = _pvec(predict(*stl))
     if lam is not None:
-        lam["st"] = (m["p"]["lh"], m["p"]["la"])
+        lam["st"] = stl
     if m.get("fn"):
         out["fn"] = _pvec(predict(m["fn"][0], m["fn"][1]))
         if lam is not None:
@@ -1305,19 +1388,11 @@ def agent_probs(m, lam=None):
                 v[a], v[b] = ia / (ia + ib), ib / (ia + ib)
         out["mk"] = v
     # Form: son 6 mac
-    fh, fa = (m.get("f") or {}).get("h") or [], (m.get("f") or {}).get("a") or []
-    if len(fh) >= 3 and len(fa) >= 3:
-        def _wgt_avg(lst, key, decay=0.80):
-            if not lst:
-                return 0.0
-            ws = [decay ** i for i in range(len(lst))]
-            return sum(w * x[key] for w, x in zip(ws, lst)) / sum(ws)
-
-        lh = _clampl(0.5 * (_wgt_avg(fh, "gf") + _wgt_avg(fa, "ga")) * 1.10)
-        la = _clampl(0.5 * (_wgt_avg(fa, "gf") + _wgt_avg(fh, "ga")) * 0.92)
-        out["fm"] = _pvec(predict(lh, la))
+    fl_ = form_lambdas((m.get("f") or {}).get("h") or [], (m.get("f") or {}).get("a") or [])
+    if fl_:
+        out["fm"] = _pvec(predict(*fl_))
         if lam is not None:
-            lam["fm"] = (lh, la)
+            lam["fm"] = fl_
     return out
 
 
@@ -2179,7 +2254,7 @@ def main():
         by_team[e["h"]["id"]].append(e)
         by_team[e["a"]["id"]].append(e)
 
-    tables, lstats, fstr = {}, {}, {}
+    tables, lstats, fstr, mxfit = {}, {}, {}, {}
     for lg in LEAGUES:
         lid = lg["id"]
         season = [e for e in done if e["lg"] == lid and e["dt"] >= SEASON_START]
@@ -2198,6 +2273,7 @@ def main():
                 use(t)
         lstats[lid] = team_stats(season)
         fstr[lid] = fenasi_strengths(season, lstats[lid][1], lstats[lid][2])
+        mxfit[lid] = maher_fit(season, NOW)
 
     print("2/6 Oranlar (bet365 / diger saglayicilar)...", flush=True)
     odds = dict(pmap(load_odds, upcoming, "oran"))
@@ -2321,7 +2397,9 @@ def main():
         use(hid)
         use(aid)
         fh, fa = form_of(hid), form_of(aid)
-        lh, la = model_lambdas(st, avg_h, avg_a, hid, aid, form_ratio(fh), form_ratio(fa))
+        old_l = model_lambdas(st, avg_h, avg_a, hid, aid, form_ratio(fh), form_ratio(fa))
+        mx_l = maher_lambdas(mxfit.get(lid), hid, aid)
+        lh, la = blend_lambdas({"mx": mx_l, "old": old_l, "fm": form_lambdas(fh, fa)})
         o = odds.get(m["id"]) or {}
         b365, alt, nes = o.get("b365"), o.get("alt"), nes_odds.get(m["id"])
         # oncelik: bet365 > Nesine > diger saglayici (or. DraftKings) > Analiz365 modeli
@@ -2382,6 +2460,8 @@ def main():
                      "hf": (nes or {}).get("hf") or [odd(x) for x in hp_hf],
                      "s": ["Nesine" if (nes or {}).get("iy") else "model", "Nesine" if (nes or {}).get("hf") else "model"]}
         rec["xp"] = {"iy": [round(x, 3) for x in hp_iy], "hf": [round(x, 3) for x in hp_hf]}
+        if mx_l:
+            rec["mx"] = [round(mx_l[0], 3), round(mx_l[1], 3)]
         if fnl:
             rec["fn"] = [fnl[0], fnl[1]]
             rec["agx"] = {"rest": fnl[2], "out": fnl[3]}
@@ -2436,6 +2516,7 @@ def main():
     for m in matches:
         pr_, k_, o_ = tip_of(m)
         preds[m["id"]] = {"d": m["d"], "lg": m["lg"], "sc": m["p"]["score"], "k": k_, "o": o_,
+                          "t3": [x[:2] for x in m["p"]["top"][:3]],
                           "p": [m["p"]["p1"], m["p"]["px"], m["p"]["p2"]],
                           "ag": {a: v[0] for a, v in (m.get("ag") or {}).items()}}
     for m in (bb or {}).get("matches", []):
@@ -2471,7 +2552,7 @@ def main():
         attach(bb["results"])
 
     # ---- sitenin son 30 gunluk isabeti (futbol) ----
-    acc = {"n": 0, "tip": 0, "res": 0, "sc": 0, "lg": {}}
+    acc = {"n": 0, "tip": 0, "res": 0, "sc": 0, "sc3": 0, "n3": 0, "lg": {}}
     agacc, agaccbb = {}, {}
     # sayac sifirlamasi: STATS_FROM gununun Askabat gece yarisindan (UTC 19:00, onceki gun) once oynananlar sayilmaz
     stats_from = (pdate(STATS_FROM) if "T" in STATS_FROM else
@@ -2488,6 +2569,9 @@ def main():
         acc["tip"] += int(t_ok)
         acc["res"] += int(max(range(3), key=lambda i: pv["p"][i]) == out)
         acc["sc"] += int(pv["sc"] == [hs, as_])
+        if pv.get("t3"):
+            acc["n3"] += 1
+            acc["sc3"] += int([hs, as_] in pv["t3"])
         row = acc["lg"].setdefault(e["lg"], [0, 0])
         row[0] += 1
         row[1] += int(t_ok)
@@ -2519,6 +2603,7 @@ def main():
     detail = defaultdict(dict)
     for m in matches:
         m.pop("fn", None)
+        m.pop("mx", None)
         detail[m["lg"]][m["id"]] = {k: m.pop(k) for k in ("f", "h2h", "st", "sq", "pl", "xp") if k in m}
     os.makedirs(ddir, exist_ok=True)
     for lid, rows in detail.items():
