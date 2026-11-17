@@ -751,7 +751,7 @@
     const up = upcoming();
     const inLg = up.filter(lgOk);
     const days = pickDay(inLg);
-    return `<div class="pagehead"><h1>${t('bulletin')}</h1><small>${t('tznote')}</small></div>
+    return `<div class="pagehead"><h1>${t('bulletin')}</h1></div>
       ${dayStrip(days)}${lgChips(new Set(up.map(m => m.lg)))}
       <div class="searchrow"><input id="q" type="search" placeholder="${t('search')}" value="${esc(flt.q)}" autocomplete="off" aria-label="${t('search')}"></div>
       <div id="favbox">${favBox()}</div>
@@ -789,7 +789,7 @@
       <a class="minfo" href="#/mac/${m.id}">
         <div class="mtime num">${wd === true ? `<span class="md">${shortDate(m.d)}</span>` : ''}${timeOf(m.d)}</div>
         <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div>
-          ${p.lh != null ? `<div class="xgr num" title="${esc(t('xg_tip'))}">xG <b>${x2(p.lh)}–${x2(p.la)}</b><span> · xGA <b>${x2(p.la)}–${x2(p.lh)}</b></span></div>` : ''}
+          ${p.lh != null ? `<div class="xgr num" title="${esc(t('xg_tip'))}">xG <b>${x2(p.lh)}–${x2(p.la)}</b></div>` : ''}
           ${c && c.n >= 2 ? `<div class="xgr agh">${t('ag_cons')}: <b>${esc(mkLabel(c.k, m))}</b> · ${m.o[c.k].toFixed(2)} · ${c.n}/5</div>` : ''}</div>
       </a>
       <div class="og c3 ms">${ob(m, '1')}${ob(m, 'X')}${ob(m, '2')}</div>
@@ -1303,9 +1303,19 @@
 
   // ---------- mac detay ----------
   const backLink = href => `<a class="back" href="${href || '#/'}" data-back="1">← ${t('back')}</a>`;
+  // baslamis mac bultenden cikar: canli skor, dakika ve goller (dakikada bir yenilenir)
+  function viewLive(r) {
+    const l = LIVE[r.id];
+    return `${backLink()}<div class="card" style="overflow:hidden"><div class="hero"><div class="meta">${badge(r.lg)} ${esc(ln(r.lg))} · ${dayLabel(dayKey(r.d))} · ${timeOf(r.d)}</div>
+      <div class="vs"><div class="side-t">${logo(r.h)}<span>${esc(tn(r.h))} ${favBtn(r.h)}</span></div>
+        <div class="mid" data-lvh="${r.id}">${l ? '' : `${t('lv_started')}<small>${timeOf(r.d)}</small>`}</div>
+        <div class="side-t">${logo(r.a)}<span>${esc(tn(r.a))} ${favBtn(r.a)}</span></div></div></div></div>
+      <div class="card sec" hidden><h2>⚽ ${t('lv_goals')}</h2><div class="lvgl" data-lvg="${r.id}"></div></div>
+      <p class="note">${t('lv_note')} <a href="#/sonuclar">${t('results')} →</a></p>`;
+  }
   function viewMatch(id) {
     const m = MATCH[id];
-    if (!m) return `${backLink(/^b/.test(id) ? '#/basketbol' : '')}<div class="card empty">${t('no_match_found')}</div>`;
+    if (!m) { const r = RECENT.find(x => x.id === id); return r ? viewLive(r) : `${backLink(/^b/.test(id) ? '#/basketbol' : '')}<div class="card empty">${t('no_match_found')}</div>`; }
     if (m.sport === 'bb') return viewMatchBB(m);
     if (!m._d) {
       loadDet(m);
@@ -1677,7 +1687,7 @@
   }
   function viewBasketball() {
     const up = BB.matches.filter(future).sort(byDate);
-    let html = `<div class="pagehead"><h1>${t('bb_title')}</h1><small>${t('tznote')}</small></div>
+    let html = `<div class="pagehead"><h1>${t('bb_title')}</h1></div>
       <div class="chips bbnav">${[['analiz', 'analysis'], ['puan', 'tables'], ['sonuclar', 'results']].map(([u, k]) => `<button class="chip" data-go="${u}">${t(k)} →</button>`).join('')}</div>
       <div id="livebox" data-sport="bb">${liveBox('bb')}</div>${bbAgentCard()}`;
     if (!up.length) html += `<div class="card empty">${t('bb_none')}</div>`;
@@ -1890,7 +1900,7 @@
       c.sels.map(x => ({ teams: nm(x, 'h') + ' – ' + nm(x, 'a'), sub: mkLabel(x.k, null, x.ln) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: (+x.o).toFixed(2), mark: mark(x.ok) })),
       { tot: tot.toFixed(2), stake: money(MIN_STAKE), win: money(Math.min(MIN_STAKE * tot, MAX_WIN)) }, c.sels.map(x => ({ m: x.m, k: x.k })));
   }
-  const viewRules = () => `<div class="pagehead"><h1>${t('r_title')}</h1></div><div class="card rules"><ol>${t('r_items').map(x => `<li>${esc(x)}</li>`).join('')}</ol><p class="note">${t('max_win_note')}</p></div>`;
+  const viewRules = () => `<div class="pagehead"><h1>${t('r_title')}</h1></div><div class="card rules"><ol>${t('r_items').map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>`;
 
   // ---------- canli skor (tarayicidan dogrudan, dakikada bir) ----------
   const LIVE = {};            // id -> { s: 'in' | 'post', hs, as, c: saat, fin: sonuclandirilabilir }
@@ -1915,7 +1925,7 @@
       <div class="mteams"><div class="mlg">${lg}</div>
         <div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span><b class="ls ${on ? 'on' : ''}">${l ? l.hs : '–'}</b></div>
         <div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span><b class="ls ${on ? 'on' : ''}">${l ? l.as : '–'}</b></div></div>`;
-    return MATCH[m.id] ? `<a class="lrow" href="#/mac/${m.id}">${inner}</a>` : `<div class="lrow">${inner}</div>`;
+    return `<a class="lrow" href="#/mac/${m.id}">${inner}</a>`;
   }
   function liveBox(sport) {
     const cs = liveCands(sport).filter(m => sport === 'bb' || lgOk(m)).sort((a, b) => isFavM(b) - isFavM(a) || byDate(a, b));
@@ -1935,6 +1945,11 @@
     document.querySelectorAll('[data-lvh]').forEach(el => {
       const l = LIVE[el.dataset.lvh];
       if (l) el.innerHTML = `<span class="${l.s === 'in' ? 'lsc' : ''}">${l.hs} - ${l.as}</span><small class="lclk ${l.s === 'in' ? 'on' : ''}">${esc(l.s === 'post' ? t('lv_ft') : l.c || t('live'))}</small>`;
+    });
+    document.querySelectorAll('[data-lvg]').forEach(el => {
+      const l = LIVE[el.dataset.lvg], g = (l && l.g) || [];
+      el.closest('.card').hidden = !g.length;
+      el.innerHTML = g.map(x => `<div class="lvg ${x.s}"><b class="num">${esc(x.m)}</b><span>⚽ ${esc(x.p || '')}${x.pk ? ' (' + t('lv_pen') + ')' : ''}${x.og ? ' (' + t('lv_og') + ')' : ''}</span></div>`).join('');
     });
     ['fb', 'bb'].forEach(sp => {
       const n = liveCands(sp).filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post')).length;
@@ -1995,7 +2010,10 @@
           const id = (lg === 'nba' ? 'b' : '') + e.id;
           setLive(id, { s: st.state === 'post' ? 'post' : 'in', hs: +h.score || 0, as: +a.score || 0,
             c: st.state === 'post' ? '' : /HALFTIME/.test(st.name) ? t('ht') : (lg === 'nba' ? st.shortDetail : e.status.displayClock) || '',
-            fin: st.name === 'STATUS_FULL_TIME' || st.name === 'STATUS_FINAL' });
+            fin: st.name === 'STATUS_FULL_TIME' || st.name === 'STATUS_FINAL',
+            g: lg === 'nba' ? null : (e.competitions[0].details || []).filter(x => x.scoringPlay && !x.shootout).map(x => ({
+              m: (x.clock || {}).displayValue || '', s: String((x.team || {}).id) === String(h.team.id) ? 'h' : 'a',
+              p: ((x.athletesInvolved || [])[0] || {}).displayName || '', og: !!x.ownGoal, pk: !!x.penaltyKick })) });
         });
       }).catch(() => { }));
     }));

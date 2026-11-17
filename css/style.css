@@ -884,3 +884,8 @@ button.morebtn{cursor:pointer;width:100%}
 .akxn{margin:-4px 2px 12px}
 .akr .srcb{margin-left:2px}
 .akxh{margin-top:22px}
+/* canli mac sayfasi: goller */
+.lvgl{display:grid;gap:6px}
+.lvg{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:var(--s2);font-size:13px}
+.lvg b{color:var(--pri);min-width:44px}
+.lvg.a{flex-direction:row-reverse;text-align:right}
