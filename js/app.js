@@ -1919,7 +1919,7 @@
   }
   function liveRow(m) {
     const l = LIVE[m.id], on = l && l.s === 'in';
-    const clock = !l ? t('lv_started') : l.s === 'post' ? t('lv_ft') : (l.c || t('live'));
+    const clock = !l ? (Date.now() - new Date(m.d).getTime() > 15 * 60e3 ? t('lv_nodata') : t('lv_started')) : l.s === 'post' ? t('lv_ft') : (l.c || t('live'));
     const lg = isBB(m) ? '<span class="cc">NBA</span><span>NBA</span>' : `${badge(m.lg)}<span>${esc(ln(m.lg))}</span>`;
     const inner = `<div class="mtime num"><b class="lclk ${on ? 'on' : ''}">${esc(clock)}</b><small>${timeOf(m.d)}</small></div>
       <div class="mteams"><div class="mlg">${lg}</div>
@@ -1987,14 +1987,17 @@
   // zaman asimli istek: erisilemeyen bir kaynak canli yenilemeyi kilitlemesin
   const tfetch = (u, ms) => { const c = new AbortController(), tm = setTimeout(() => c.abort(), ms || 9000);
     return fetch(u, { signal: c.signal, cache: 'no-store' }).finally(() => clearTimeout(tm)); };
-  const espnAt = {};
+  const espnAt = {}, srvAt = {};
+  const SRV_LIVE = [((window.AHAL_CFG || {}).supabaseUrl || '').replace(/\/$/, '') + '/storage/v1/object/public/live/live.json', 'data/live.json'].filter(u => !/^\/storage/.test(u));
   // sunucu yedegi (data/live.json): ESPN'e ulasilamayan aglarda skor buradan gelir; dakika, dosyanin yasina gore ilerletilir
   function applySrv(j) {
     if (!j || !j.ev || !j.t) return;
     const age = (Date.now() - Date.parse(j.t)) / 60e3;
+    const at = Date.parse(j.t);
     if (!(age < 45)) return;
     Object.keys(j.ev).forEach(id => {
-      if (espnAt[id] > Date.now() - 180e3) return;          // ESPN'den taze veri varsa o gecerli
+      if (espnAt[id] > Date.now() - 180e3 || srvAt[id] >= at) return;   // ESPN'den ya da daha yeni yedekten veri varsa o gecerli
+      srvAt[id] = at;
       const v = j.ev[id];
       let c = v.c || '';
       if (v.s === 'in' && /HALFTIME/.test(v.n || '')) c = t('ht');
@@ -2021,7 +2024,7 @@
       const lg = isBB(m) ? 'nba' : m.lg, t0 = new Date(m.d).getTime();
       (want[lg] = want[lg] || new Set()).add(ymd(t0)).add(ymd(t0 - 6 * 3600e3));
     });
-    if (Object.keys(want).length) jobs.push(tfetch('data/live.json?t=' + Date.now(), 7000).then(r => (r.ok ? r.json() : null)).then(applySrv).catch(() => { }));
+    if (Object.keys(want).length) SRV_LIVE.forEach(u => jobs.push(tfetch(u + '?t=' + Date.now(), 7000).then(r => (r.ok ? r.json() : null)).then(applySrv).catch(() => { })));
     Object.keys(want).forEach(lg => want[lg].forEach(day => {
       const path = lg === 'nba' ? 'basketball/nba' : 'soccer/' + lg;
       jobs.push(tfetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${day}&limit=200`).then(r => r.json()).then(d => {

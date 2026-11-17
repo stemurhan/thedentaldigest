@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Analiz365 - canli skor yedegi (GitHub Actions, birkac dakikada bir).
+Analiz365 - canli skor yedegi.
 
-Tarayici canli skoru dogrudan ESPN'den okur; ESPN'e ulasilamayan aglarda (bazi mobil operatorler)
-site kendi sunucusundaki data/live.json dosyasina duser. Bu betik o dosyayi yazar: su an oynanan
-maclarin skoru, dakikasi ve golleri. Oynanan mac yoksa dosya bir kez bosaltilir, sonra dokunulmaz.
+Tarayici canli skoru dogrudan ESPN'den okur; ESPN'e ulasamayan cihazlarda (bazi mobil aglar /
+tarayicilar) site yedek kaynaga duser: su an oynanan maclarin skoru, dakikasi ve golleri.
+- publish(): Supabase Storage'daki herkese acik "live/live.json" dosyasina yazar
+  (sonuclandirma is akisi her calismada cagirir, ~8 dakikada bir).
+- main(): ayni veriyi depodaki data/live.json dosyasina yazar (ayri bir is akisi icin).
+Oynanan mac yoksa dosya bir kez bosaltilir, sonra dokunulmaz.
 """
 import json
 import os
@@ -41,7 +44,8 @@ def load_data():
     return json.loads(s[s.index("{"):s.rindex("}") + 1])
 
 
-def main():
+def build():
+    """Oynanan maclarin canli durumu: {mac_id: {s, hs, as, n, c, g}}."""
     D = load_data()
     want = {}                                       # (lig, gun) -> {mac kimlikleri}
     cands = [(m, False) for m in (D.get("matches") or []) + (D.get("recent") or [])]
@@ -80,6 +84,47 @@ def main():
                              "og": bool(x.get("ownGoal")), "pk": bool(x.get("penaltyKick"))}
                             for x in c.get("details") or [] if x.get("scoringPlay") and not x.get("shootout")]
             ev[eid] = rec
+    return ev
+
+
+def payload(ev):
+    return {"t": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), "ev": ev}
+
+
+def publish(url, key):
+    """Canli durumu Supabase Storage'a (herkese acik 'live' kovasi) yazar."""
+    url = "".join((url or "").split()).rstrip("/")
+    key = "".join((key or "").split())
+    if not url or not key:
+        return
+    h = {"apikey": key, "User-Agent": "analiz365-live/1.0 (python-urllib)"}
+    if key.startswith("eyJ"):
+        h["Authorization"] = "Bearer " + key
+
+    def call(path, method, data, ctype="application/json", extra=None):
+        hh = dict(h, **{"Content-Type": ctype}, **(extra or {}))
+        req = urllib.request.Request(url + path, data=data, method=method, headers=hh)
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status
+
+    ev = build()
+    if not ev:                                      # mac yoksa: dosyada canli kayit kaldiysa bir kez bosalt
+        old = get(f"{url}/storage/v1/object/public/live/live.json?t={int(NOW.timestamp())}") or {}
+        if not old.get("ev"):
+            print("canli: oynanan mac yok")
+            return
+    body = json.dumps(payload(ev), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    try:
+        call("/storage/v1/bucket", "POST", json.dumps({"id": "live", "name": "live", "public": True}).encode())
+    except Exception:
+        pass                                        # kova zaten var
+    call("/storage/v1/object/live/live.json", "POST", body,
+         extra={"x-upsert": "true", "cache-control": "max-age=20"})
+    print(f"canli: {len(ev)} mac Supabase'e yazildi")
+
+
+def main():
+    ev = build()
     try:
         with open(OUT, encoding="utf-8") as f:
             old = json.load(f)
@@ -89,7 +134,7 @@ def main():
         print("Canli mac yok; dosya degismedi.")
         return
     with open(OUT, "w", encoding="utf-8") as f:
-        json.dump({"t": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), "ev": ev}, f, ensure_ascii=False, separators=(",", ":"))
+        json.dump(payload(ev), f, ensure_ascii=False, separators=(",", ":"))
     print(f"Canli skor: {len(ev)} mac yazildi.")
 
 

@@ -155,4 +155,11 @@ if __name__ == "__main__":
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
+    # canli skor yedegi (ESPN'e ulasamayan cihazlar icin); hata sonuclandirmayi asla durdurmaz
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import live
+        live.publish(URL, KEY)
+    except Exception as ex:
+        print("canli skor yedegi atlandi:", ex)
     main()

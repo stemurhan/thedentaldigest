@@ -875,3 +875,6 @@ Object.assign(window.I18N.tk, {
 Object.assign(window.I18N.tr, { lv_goals: 'Goller', lv_pen: 'penaltı', lv_og: 'kendi kalesine', lv_note: 'Maç başladı: skor, dakika ve goller her dakika otomatik yenilenir. Maç bitince sonucu ve tahminin tutup tutmadığını Biten Maçlar sayfasında görebilirsin.' });
 Object.assign(window.I18N.ru, { lv_goals: 'Голы', lv_pen: 'пенальти', lv_og: 'автогол', lv_note: 'Матч начался: счёт, минута и голы обновляются каждую минуту. После матча результат и прогноз — на странице «Завершённые».' });
 Object.assign(window.I18N.tk, { lv_goals: 'Gollar', lv_pen: 'penalti', lv_og: 'öz derwezesine', lv_note: 'Oýun başlandy: hasap, minut we gollar her minutda täzelenýär. Oýun gutaransoň netijäni we çaklamanyň dogrulygyny Gutaran oýunlar sahypasynda görüp bilersiň.' });
+Object.assign(window.I18N.tr, { lv_nodata: 'Canlı veri yok' });
+Object.assign(window.I18N.ru, { lv_nodata: 'Нет онлайн-данных' });
+Object.assign(window.I18N.tk, { lv_nodata: 'Göni maglumat ýok' });
