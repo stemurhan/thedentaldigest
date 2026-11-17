@@ -133,7 +133,10 @@
   const srcName = s => (s === 'model' ? 'Analiz365' : s);
   const srcBadge = s => `<span class="srcb ${s === 'model' ? 'm' : ''}">${esc(srcName(s))}</span>`;
 
+  const XK = ['iy', 'y2', 'sk'];                       // devre ve skor kuponlari (ajanlarin ortak karari)
+  const xLab = k => (/^IY/.test(k) ? t('xk_iy') + ': ' + k.slice(2) : /^2Y/.test(k) ? t('xk_y2') + ': ' + k.slice(2) : /^S\d/.test(k) ? t('xk_sk') + ': ' + k.slice(1) : null);
   function mkLabel(k, m, line) {
+    if (xLab(k)) return xLab(k);
     const l = line != null ? line : (m || {}).line;
     if (k === 'BO' || k === 'BU') return t('bb_total') + ': ' + (k === 'BO' ? t('over') : t('under')) + ' ' + l;
     if (/^[OU]/.test(k)) return (k[0] === 'O' ? t('over') : t('under')) + ' ' + k.slice(1);
@@ -150,6 +153,7 @@
   }
   function wins(k, hs, as, line) {
     const tot = hs + as;
+    if (/^S\d/.test(k)) { const [a, b] = k.slice(1).split('-').map(Number); return hs === a && as === b; }
     switch (k) {
       case '1': return hs > as; case 'X': return hs === as; case '2': return hs < as;
       case '1X': return hs >= as; case '12': return hs !== as; case 'X2': return hs <= as;
@@ -274,12 +278,13 @@
   // sonuc: veri betiginin isledigi ya da canli akistan gelen mac sonucu
   function pkOk(pk, score) {
     if (pk.ok !== undefined) return pk.ok;
+    if (/^(IY|2Y)/.test(pk.k || '')) return null;          // devre sonucu canli akistan bilinmez
     const r = RES[pk.id];
     if (!r) return null;
     return score ? (r.hs === pk.sc[0] && r.as === pk.sc[1]) : wins(pk.k, r.hs, r.as);
   }
   const pkRes = pk => pk.res || (RES[pk.id] ? [RES[pk.id].hs, RES[pk.id].as] : null);
-  const pkIcon = (pk, score) => { const ok = pkOk(pk, score); return ok === true ? '<span class="mst ok" title="✓">✓</span>' : ok === false ? '<span class="mst no" title="✗">✗</span>' : '<span class="mst wait" title="…">•</span>'; };
+  const pkIcon = (pk, score) => { const ok = pkOk(pk, score); if (ok === null && pk.res && pk.ok === null) return `<span class="mst wait" title="${esc(t('xk_void'))}">–</span>`; return ok === true ? '<span class="mst ok" title="✓">✓</span>' : ok === false ? '<span class="mst no" title="✗">✗</span>' : '<span class="mst wait" title="…">•</span>'; };
   const cRange = c => (c.until && c.until !== c.date ? dayShort(c.date) + ' – ' + dayShort(c.until) : dayLabel(c.date));
   const pkLive = pk => MATCH[pk.id] && future(MATCH[pk.id]) && MATCH[pk.id].o[pk.k];
   function weekRange(off) {
@@ -314,6 +319,7 @@
   }
   // own: 'all' (ortak kupon) ya da bir analizcinin kimligi (kendi kuponu)
   const kPicks = (c, kind, own) => {
+    if (XK.includes(kind)) return own && own !== 'all' ? [] : ((c || {})[kind] || {}).picks || [];
     if (own && own !== 'all') { const o = (c.ac || {})[own] || {}; return (kind === 'sys' ? (o.sys || {}).picks : o[kind === 'hi' ? 'hi' : 'main']) || []; }
     return (kind === 'hi' ? (hiOf(c) || {}).picks : kind === 'sys' ? (sysOf(c) || {}).picks : c.picks) || [];
   };
@@ -340,6 +346,7 @@
       ${c.picks.some(pkLive) ? `<button class="btn" data-act="tipadd" data-cdate="${c.date}">${t('tipc_add')}</button>` : ''}
       ${hiOf(c) ? `<button type="button" class="tipx" data-mk="hi" data-mgo="1"><span>🔥 ${t('m_k_hi')} · ${hiOf(c).picks.length} ${t('selections')}</span><b class="num">${prodO(hiOf(c).picks).toFixed(2)}</b></button>` : ''}
       ${sysOf(c) ? `<button type="button" class="tipx" data-mk="sys" data-mgo="1"><span>🎯 ${t('m_k_sys')}</span><b class="num">${sysOf(c).k}/${sysOf(c).picks.length}</b></button>` : ''}
+      ${[['iy', '⏱️'], ['y2', '⏳'], ['sk', '🔢']].map(([x, ic]) => { const pk = kPicks(c, x); return pk.length ? `<button type="button" class="tipx" data-mk="${x}" data-mgo="1"><span>${ic} ${t('m_k_' + x)} · ${pk.length} ${t('selections')}</span><b class="num">${prodO(pk).toFixed(2)}</b></button>` : ''; }).join('')}
       <a class="btn ghost" href="#/mollamyrat">${t('m_track')} →</a></div></div>`;
   }
   // ---------- Analiz Kuponlari: ortak kupon + bes analizcinin kendi kuponlari (yalnizca kuponlar) ----------
@@ -347,7 +354,7 @@
   const agAv = (a, bb, ic) => (bb ? `<i class="av emo">${ic}</i>` : a === 'all' ? '<i class="av a-all">★</i>' : `<i class="av a-${a}">${esc(t('ag_' + a).slice(0, 1))}</i>`);
   function akRow(pk, joint) {
     const res = pkRes(pk), tag = MATCH[pk.id] ? 'a' : 'div';
-    return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
+    return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${pk.hr ? ' · ' + t(/^IY/.test(pk.k) ? 'xk_iy_s' : 'xk_y2_s') + ' <b class="res">' + pk.hr[0] + '-' + pk.hr[1] + '</b>' : ''}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}"></span>`}${pk.os === 'model' && /^(IY|2Y|S\d)/.test(pk.k) ? ' · <span class="srcb m">Analiz365</span>' : ''}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
   }
   function akCard(c, mk, own) {
     const pk = kPicks(c, mk, own), joint = own === 'all', r = joint ? null : (D.agacc || {})[own];
@@ -364,12 +371,14 @@
   function viewMolla() {
     const per = MOLLA.coupons.filter(x => x.ac), c = per.find(x => x.date === flt.mp) || per[0] || MOLLA.coupons[0];
     if (!c) return `<div class="pagehead"><h1>${t('tipc_title')}</h1></div><div class="card empty">${t('m_none')}</div>`;
-    const mk = ['main', 'hi', 'sys'].includes(flt.mk) ? flt.mk : 'main', owners = ['all'].concat(AGENTS.map(x => x[0]));
-    const TAB = [['main', '★', 'ak_h_main'], ['hi', '🔥', 'ak_h_hi'], ['sys', '🎯', 'ak_h_sys']];
+    const mk = ['main', 'hi', 'sys'].concat(XK).includes(flt.mk) ? flt.mk : 'main', xk = XK.includes(mk);
+    const owners = xk ? ['all'] : ['all'].concat(AGENTS.map(x => x[0]));
+    const TAB = [['main', '★', 'ak_h_main'], ['hi', '🔥', 'ak_h_hi'], ['sys', '🎯', 'ak_h_sys'], ['iy', '⏱️', 'ak_h_iy'], ['y2', '⏳', 'ak_h_y2'], ['sk', '🔢', 'ak_h_sk']];
     return `<div class="pagehead"><h1>${t('tipc_title')}</h1><small class="num">${cRange(c)}</small></div>
       <div class="aktabs" role="tablist">${TAB.map(([k, ic, h]) => `<button role="tab" aria-selected="${mk === k}" class="${mk === k ? 'on' : ''}" data-mk="${k}"><i>${ic}</i><b>${t(h)}</b></button>`).join('')}</div>
       ${per.length > 1 ? `<div class="chips akper">${per.map(x => `<button class="chip ${x === c ? 'on' : ''}" data-mp="${x.date}">${cRange(x)}</button>`).join('')}</div>` : ''}
-      <div class="akg">${owners.map(o => akCard(c, mk, o)).join('')}</div>`;
+      ${xk ? `<p class="note akxn">${t('xk_note_' + mk)}</p>` : ''}
+      <div class="akg${xk ? ' one' : ''}">${owners.map(o => akCard(c, mk, o)).join('')}</div>`;
   }
 
   // ---------- favori karti, bildirimler ----------
@@ -462,7 +471,7 @@
   }
   function shareMolla(date, kind, own) {
     const c0 = MOLLA.coupons.find(x => x.date === date) || MOLLA.coupons[0]; if (!c0) return;
-    const mk = kind === 'hi' || kind === 'sys' ? kind : 'main', pk = kPicks(c0, mk, own); if (!pk.length) return;
+    const mk = ['hi', 'sys'].concat(XK).includes(kind) ? kind : 'main', pk = kPicks(c0, mk, own); if (!pk.length) return;
     const who = own && own !== 'all' ? t('ag_' + own) : t('ac_joint');
     const rows = x => ({ teams: pkName(x, 'h') + ' – ' + pkName(x, 'a'), sub: mkLabel(x.k) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: x.o.toFixed(2), mark: mark(pkOk(x)) });
     const sels = pk.map(x => ({ m: x.id, k: x.k })), head = '★ ' + t('tipc_title') + ' · ' + who;
@@ -1937,7 +1946,7 @@
     if (slip.some(x => x.m === id)) return true;
     if (coupons.some(c => c.status === 'pending' && c.sels.some(x => x.m === id))) return true;
     const c0 = MOLLA.coupons[0];
-    return !!(c0 && ['main', 'hi', 'sys'].some(k => kPicks(c0, k).some(x => x.id === id)));
+    return !!(c0 && ['main', 'hi', 'sys'].concat(XK).some(k => kPicks(c0, k).some(x => x.id === id)));
   }
   function setLive(id, v) {
     const prev = LIVE[id];

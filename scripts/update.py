@@ -188,6 +188,35 @@ def frac(v):
 
 
 # ---- Fikstur / sonuc -------------------------------------------------------
+def halves(details, hid, aid, hs, as_):
+    """Gol dakikalarindan devre skorlari: ([ilk yari], [ikinci yari]). Uzatma golleri (90+ disi 91-120) yarilara
+    sayilmaz. Sayim mac skoruyla tutmazsa (eksik veri) None doner; kendi kalesine gol takimi iki yonde de denenir."""
+    goals = []
+    for d in details:
+        if not d.get("scoringPlay") or d.get("shootout"):
+            continue
+        tid = str((d.get("team") or {}).get("id") or "")
+        disp = str((d.get("clock") or {}).get("displayValue") or "")
+        num = "".join(ch for ch in disp.split("'")[0] if ch.isdigit())
+        if not num or tid not in (hid, aid):
+            return None
+        goals.append((int(num), tid == hid, bool(d.get("ownGoal"))))
+    for flip in (False, True):
+        cnt = {"h1": [0, 0], "h2": [0, 0], "all": [0, 0]}
+        for mn, home, og in goals:
+            side = 0 if home != (og and flip) else 1
+            cnt["all"][side] += 1
+            if mn <= 45:
+                cnt["h1"][side] += 1
+            elif mn <= 90:
+                cnt["h2"][side] += 1
+        if cnt["all"] == [hs, as_]:
+            return cnt["h1"], cnt["h2"]
+        if not any(g[2] for g in goals):
+            break
+    return None
+
+
 def parse_event(e, lg):
     try:
         c = e["competitions"][0]
@@ -205,10 +234,15 @@ def parse_event(e, lg):
             except (TypeError, ValueError):
                 return 0
 
-        return {"id": str(e["id"]), "lg": lg, "d": e["date"], "state": st.get("state"),
-                "status": st.get("name"), "slug": (e.get("season") or {}).get("slug", ""),
-                "h": tm(comp["home"]), "a": tm(comp["away"]), "hs": sc(comp["home"]), "as": sc(comp["away"]),
-                "v": fx((c.get("venue") or {}).get("fullName") or "")}
+        ev = {"id": str(e["id"]), "lg": lg, "d": e["date"], "state": st.get("state"),
+              "status": st.get("name"), "slug": (e.get("season") or {}).get("slug", ""),
+              "h": tm(comp["home"]), "a": tm(comp["away"]), "hs": sc(comp["home"]), "as": sc(comp["away"]),
+              "v": fx((c.get("venue") or {}).get("fullName") or "")}
+        if lg != "nba" and st.get("state") == "post":
+            hv = halves(c.get("details") or [], ev["h"]["id"], ev["a"]["id"], ev["hs"], ev["as"])
+            if hv:
+                ev["h1"], ev["h2"] = hv
+        return ev
     except Exception:
         return None
 
@@ -1385,9 +1419,119 @@ def own_coupons(pool, base):
     return res
 
 
+# ---- Devre ve skor kuponlari: ajanlarin ortak karariyla (ilk yari sonucu, ikinci yari sonucu, mac skoru) ----
+XK_TYPES = ("iy", "y2", "sk")
+XK_N = {"iy": 3, "y2": 3, "sk": 3}     # her kupondaki mac sayisi
+XK_NEED = 0.42                          # devre secenegi icin bir ajanin onay esigi
+HALF_F = 0.45                           # gollerin ilk yariya dusen payi (half_probs ile ayni)
+
+
+def wins_x(k, e):
+    """Devre / skor seceneklerini de bilen sonuc kontrolu. Devre skoru bilinmiyorsa None."""
+    if k[:1] == "S" and "-" in k:
+        a, b = k[1:].split("-")
+        return [e["hs"], e["as"]] == [int(a), int(b)]
+    if k[:2] in ("IY", "2Y"):
+        hv = e.get("h1") if k[:2] == "IY" else e.get("h2")
+        return wins(k[2:], *hv) if hv else None
+    return wins(k, e["hs"], e["as"])
+
+
+def _res3(lh, la):
+    """Bagimsiz Poisson ile 1 / X / 2 olasiliklari."""
+    ph, pa = pois(lh)[:9], pois(la)[:9]
+    w = sum(ph[i] * pa[j] for i in range(9) for j in range(9) if i > j)
+    d = sum(ph[i] * pa[i] for i in range(9))
+    s_ = sum(ph) * sum(pa)
+    return [w / s_, d / s_, (s_ - w - d) / s_]
+
+
+def _score_mat(lh, la):
+    ph, pa = pois(lh), pois(la)
+    mat = [[ph[i] * pa[j] * (_dc_tau(i, j, lh, la) if i < 2 and j < 2 else 1) for j in range(6)] for i in range(6)]
+    tot = sum(map(sum, mat))
+    return [[v / tot for v in r] for r in mat]
+
+
+def extra_coupons(pool, base):
+    """Ilk yari / ikinci yari / mac skoru kuponlari. Her ajan kendi gol beklentisinden devre ve skor olasiligi
+    uretir; piyasa ajani ilk yari icin Nesine orani varsa onu kullanir. Ortak olasilik agirlikli ortalamadir;
+    secim, en cok ajanin onayladigi (sonra ortak olasiligi en yuksek) maclardan kurulur."""
+    cand = {x: [] for x in XK_TYPES}
+    for m in pool:
+        lg = LGMAP.get(m["lg"]) or {}
+        if lg.get("tsdb") or m["lg"] == "fifa.friendly":   # devre skoru alinamayan / ongorulemez maclar
+            continue
+        lam = {}
+        agent_probs(m, lam)
+        ags = [a for a in VOTE_AGENTS if a in lam]
+        if len(ags) < 3:
+            continue
+        xo = m.get("xo") or {}
+        iy_real = (xo.get("s") or ["model"])[0] != "model" and xo.get("iy")
+        W = {a: AG_W.get(a, 1.0) for a in ags}
+        tw = sum(W.values())
+        risky = m.get("src") == "model"
+        bonus = 0.02 if not risky else 0.0
+        for typ in ("iy", "y2"):
+            pa = {}
+            for a in ags:
+                lh, la = lam[a]
+                if typ == "iy":
+                    pa[a] = half_probs(lh, la, HALF_F)[0]
+                    if a == "mk" and iy_real:
+                        inv = [1 / x for x in xo["iy"]]
+                        pa[a] = [x / sum(inv) for x in inv]
+                else:
+                    pa[a] = _res3(lh * (1 - HALF_F), la * (1 - HALF_F))
+            best = None
+            for i, r in enumerate(("1", "X", "2")):
+                cons = sum(W[a] * pa[a][i] for a in ags) / tw
+                o = (xo.get("iy") or [None] * 3)[i] if typ == "iy" else None
+                o = o or odd(cons)
+                if o < 1.3 or cons < XK_NEED:
+                    continue
+                row = [[round(pa[a][i], 3), int(pa[a][i] >= XK_NEED)] if a in pa else None for a in VOTE_AGENTS]
+                ev = cons * o - 1
+                row.append([round(ev, 3), int(ev >= -0.08 and not risky)])
+                v = sum(x[1] for x in row if x)
+                key = (v, cons + bonus)
+                if best is None or key > best[0]:
+                    best = (key, ("IY" if typ == "iy" else "2Y") + r, o, cons, v, row)
+            if best:
+                cand[typ].append((best[0], dict(base(m), k=best[1], o=round(best[2], 2), p=round(best[3], 3),
+                                                sc=m["p"]["score"], v=best[4], ag=best[5],
+                                                os="Nesine" if typ == "iy" and iy_real else "model")))
+        # mac skoru: ortak skor matrisinin en olasi skoru; onay = kendi en olasi skoru ayni olan ajanlar
+        mats = {a: _score_mat(*lam[a]) for a in ags}
+        cm = [[sum(W[a] * mats[a][i][j] for a in ags) / tw for j in range(6)] for i in range(6)]
+        ci, cj = max(((i, j) for i in range(6) for j in range(6)), key=lambda t_: cm[t_[0]][t_[1]])
+        cons = cm[ci][cj]
+        row = []
+        for a in VOTE_AGENTS:
+            if a not in mats:
+                row.append(None)
+                continue
+            ai, aj = max(((i, j) for i in range(6) for j in range(6)), key=lambda t_: mats[a][t_[0]][t_[1]])
+            row.append([round(mats[a][ci][cj], 3), int((ai, aj) == (ci, cj))])
+        o = odd(cons)
+        row.append([round(cons * o - 1, 3), int(not risky)])
+        v = sum(x[1] for x in row if x)
+        cand["sk"].append(((v, cons + bonus), dict(base(m), k=f"S{ci}-{cj}", o=o, p=round(cons, 3),
+                                                    sc=[ci, cj], v=v, ag=row, os="model")))
+    out = {}
+    for typ in XK_TYPES:
+        c = sorted(cand[typ], key=lambda x: (-x[0][0], -x[0][1]))[:XK_N[typ]]
+        if len(c) >= 2:
+            out[typ] = {"picks": sorted((x[1] for x in c), key=lambda r: r["d"])}
+    return out
+
+
 def coupon_picks(c):
-    """Bir donemin tum kuponlarindaki secimler (ortak + analizcilerin kendi kuponlari)."""
+    """Bir donemin tum kuponlarindaki secimler (ortak + analizcilerin kendi kuponlari + devre / skor kuponlari)."""
     out = list(c["picks"]) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", [])
+    for x in XK_TYPES:
+        out += (c.get(x) or {}).get("picks", [])
     for own in (c.get("ac") or {}).values():
         out += own.get("main", []) + own.get("hi", []) + (own.get("sys") or {}).get("picks", [])
     return out
@@ -1424,7 +1568,9 @@ def molla(matches, done_by_id, src_team, use):
             e = done_by_id.get(pk["id"])
             if e and "res" not in pk:
                 pk["res"] = [e["hs"], e["as"]]
-                pk["ok"] = wins(pk["k"], e["hs"], e["as"])
+                pk["ok"] = wins_x(pk["k"], e)
+                if pk["k"][:2] in ("IY", "2Y") and e.get("h1"):
+                    pk["hr"] = e["h1"] if pk["k"][:2] == "IY" else e["h2"]
         for sc in c.get("scores", []):
             e = done_by_id.get(sc["id"])
             if e and "res" not in sc:
@@ -1577,6 +1723,8 @@ def molla(matches, done_by_id, src_team, use):
                 cpn["hi"] = {"picks": [arec(x) for x in by_date(hi)]}
             if len(sy) >= need + 1:
                 cpn["sys"] = {"k": need, "picks": [arec(x) for x in by_date(sy)]}
+            cpn.update(extra_coupons(pool, base))
+            cpn["xk"] = 1
             state["coupons"][today] = cpn
             print(f"   MollaMyrat ajan heyeti: {len(pool)} mac tarandi -> banko {len(picks)}, "
                   f"surpriz {len(hi or [])}, sistem {len(sy) if len(sy) >= need + 1 else 0}", flush=True)
@@ -1595,6 +1743,12 @@ def molla(matches, done_by_id, src_team, use):
                 sc_ = system_coupon(pool, avoid)
                 if sc_:
                     cur["sys"] = sc_
+    # 2c) devre ve skor kuponlari (guncel kuponda yoksa bir kez uretilir; baslamis maclar alinmaz)
+    keys = sorted(state["coupons"])
+    if keys and "xk" not in state["coupons"][keys[-1]]:
+        cur = state["coupons"][keys[-1]]
+        cur.update(extra_coupons(window(keys[-1]), base))
+        cur["xk"] = 1
     # 3) eski kayitlari at, kaydet
     keep = (NOW - timedelta(days=400)).strftime("%Y-%m-%d")
     state["coupons"] = {k: v for k, v in state["coupons"].items() if k >= keep}

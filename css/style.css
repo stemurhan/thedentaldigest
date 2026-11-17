@@ -878,3 +878,8 @@ button.morebtn{cursor:pointer;width:100%}
   .axverd,.axres{flex-wrap:wrap}
 }
 .btn.ghost.axgo{color:var(--pri);border-color:rgba(18,196,139,.45);font-weight:700}
+
+/* ---------- Analiz Kuponlari: devre ve skor kuponlari (tek ortak kupon) ---------- */
+.akg.one{grid-template-columns:minmax(0,620px)}
+.akxn{margin:-4px 2px 12px}
+.akr .srcb{margin-left:2px}

@@ -833,3 +833,28 @@ Object.assign(window.I18N.tk, {
   axb_in_say: 'Şikes hasabatyna görä {h} ýetmezçiliklerden {x}, {a} {y} utuk ýitirýär.', axb_in_none: 'Bu oýun üçin şikes hasabaty gelmedi: düzüm agenti saklanýar.',
   axb_src: 'Çaklanýan hasap, tapawut we jemi agentleriň ortaçasy; ähtimallyklar normal paýlanyş bilen hasaplanýar.'
 });
+/* Analiz Kuponlari: ilk yari / ikinci yari / mac skoru kuponlari */
+Object.assign(window.I18N.tr, {
+  ak_h_iy: 'İlk Yarı', ak_h_y2: 'İkinci Yarı', ak_h_sk: 'Maç Skoru',
+  m_k_iy: 'İlk yarı kuponu', m_k_y2: 'İkinci yarı kuponu', m_k_sk: 'Maç skoru kuponu',
+  xk_iy: 'İlk Yarı', xk_y2: '2. Yarı', xk_sk: 'Maç Skoru', xk_iy_s: 'İY', xk_y2_s: '2Y', xk_void: 'Devre skoru alınamadı, sonuçlanmadı',
+  xk_note_iy: 'Beş ajanın ortak kuponu: her ajan kendi gol beklentisinin %45\'ini ilk yarıya verip ilk yarı sonucu olasılığını hesaplar (piyasa ajanı varsa sitenin ilk yarı oranını kullanır). Kupona en çok ajanın onayladığı (olasılık %42+), ortak olasılığı en yüksek maçlar girer.',
+  xk_note_y2: 'Beş ajanın ortak kuponu: yalnızca ikinci yarıda atılan goller sayılır (ilk yarı skoru dikkate alınmaz). Her ajan gol beklentisinin %55\'ini ikinci yarıya verir; kupona en çok onay alan, ortak olasılığı en yüksek maçlar girer. Oranlar Analiz365 hesaplamasıdır.',
+  xk_note_sk: 'Beş ajanın ortak kuponu: her ajanın skor tablosu birleştirilir, ortak en olası skor seçilir. Onay, kendi en olası skoru aynı çıkan ajan sayısıdır. Tam skor zor bir pazardır; oranlar Analiz365 hesaplamasıdır.'
+});
+Object.assign(window.I18N.ru, {
+  ak_h_iy: 'Первый тайм', ak_h_y2: 'Второй тайм', ak_h_sk: 'Точный счёт',
+  m_k_iy: 'Купон на первый тайм', m_k_y2: 'Купон на второй тайм', m_k_sk: 'Купон на точный счёт',
+  xk_iy: 'Первый тайм', xk_y2: '2-й тайм', xk_sk: 'Точный счёт', xk_iy_s: '1Т', xk_y2_s: '2Т', xk_void: 'Счёт тайма недоступен, не рассчитано',
+  xk_note_iy: 'Общий купон пяти агентов: каждый относит 45% своих ожидаемых голов к первому тайму и считает вероятность исхода тайма (рыночный агент берёт коэффициент на тайм, если он есть). В купон входят матчи с наибольшим числом одобрений (вероятность 42%+) и самой высокой общей вероятностью.',
+  xk_note_y2: 'Общий купон пяти агентов: учитываются только голы второго тайма (счёт первого тайма не важен). Каждый агент относит 55% ожидаемых голов ко второму тайму; входят матчи с наибольшим числом одобрений. Коэффициенты рассчитаны Analiz365.',
+  xk_note_sk: 'Общий купон пяти агентов: таблицы счетов агентов объединяются, выбирается самый вероятный общий счёт. Одобрение — число агентов, у которых свой самый вероятный счёт совпал. Точный счёт — сложный рынок; коэффициенты рассчитаны Analiz365.'
+});
+Object.assign(window.I18N.tk, {
+  ak_h_iy: 'Birinji ýarym', ak_h_y2: 'Ikinji ýarym', ak_h_sk: 'Oýnuň hasaby',
+  m_k_iy: 'Birinji ýarym kupony', m_k_y2: 'Ikinji ýarym kupony', m_k_sk: 'Hasap kupony',
+  xk_iy: 'Birinji ýarym', xk_y2: '2-nji ýarym', xk_sk: 'Oýnuň hasaby', xk_iy_s: '1Ý', xk_y2_s: '2Ý', xk_void: 'Ýarym hasaby alynmady, netijelenmedi',
+  xk_note_iy: 'Bäş agentiň umumy kupony: her agent garaşylýan gollarynyň %45-ini birinji ýarym üçin alyp, ýarym netijesiniň ähtimallygyny hasaplaýar (bazar agenti bar bolsa saýtyň ýarym koeffisiýentini ulanýar). Kupona iň köp agentiň tassyklan (ähtimallyk %42+), umumy ähtimallygy iň ýokary oýunlary girýär.',
+  xk_note_y2: 'Bäş agentiň umumy kupony: diňe ikinji ýarymda geçirilen gollar hasaplanýar. Her agent garaşylýan gollarynyň %55-ini ikinji ýarym üçin alýar; iň köp tassyklanan oýunlar girýär. Koeffisiýentler Analiz365 hasaplamasy.',
+  xk_note_sk: 'Bäş agentiň umumy kupony: agentleriň hasap tablisalary birleşdirilýär, iň ähtimal umumy hasap saýlanýar. Tassyklama — öz iň ähtimal hasaby gabat gelen agentleriň sany. Takyk hasap kyn bazar; koeffisiýentler Analiz365 hasaplamasy.'
+});
