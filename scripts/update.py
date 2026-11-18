@@ -1039,30 +1039,88 @@ def full_matrix(lh, la, n=8):
     return [[v / t_ for v in r] for r in mat]
 
 
-def consistent_score(mat, lim=6, pr=None):
+# Yayinlanmis kupon secimleri taahhuttur: kupon surdukce o macin tahmini skoru bu secimlerle celismez.
+# PINS[mac] = skorun saglamasi gereken kosullar; PIN_HT[mac] = IY/MS kuponundaki ilk yari sonucu;
+# PINS_AG[(mac, analizci)] = analizcinin kendi kuponundaki secimler.
+PINS, PIN_HT, PINS_AG = defaultdict(list), {}, defaultdict(list)
+
+
+def pin_fns(items):
+    out = []
+    for kind, v in items:
+        if kind == "k":
+            out.append(lambda i, j, v=v: wins(v, i, j))
+        elif kind == "s":
+            out.append(lambda i, j, v=v: [i, j] == list(v))
+        elif kind == "ft":
+            out.append(lambda i, j, v=v: OUTC[_oc(i, j)] == v)
+    return out
+
+
+def load_pins():
+    """Guncel donemin ortak kuponlari, skor ve IY/MS kuponu, yedek kupon ve analizci kuponlarindaki secimler."""
+    PINS.clear()
+    PIN_HT.clear()
+    PINS_AG.clear()
+    st_ = cache_read(MOLLA) or {}
+    cks = sorted(st_.get("coupons") or {})
+    later = NOW - timedelta(minutes=5)
+    alive = lambda x: pdate(x["d"]) > later
+    if cks:
+        c = st_["coupons"][cks[-1]]
+        for x in list(c.get("picks") or []) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", []):
+            if alive(x):
+                PINS[x["id"]].append(("k", x["k"]))
+        for x in (c.get("sk") or {}).get("picks", []):
+            if alive(x) and x.get("sc"):
+                PINS[x["id"]].append(("s", x["sc"]))
+        for x in (c.get("hf") or {}).get("picks", []):
+            if alive(x) and x["k"].startswith("HF"):
+                PINS[x["id"]].append(("ft", x["k"][4]))
+                PIN_HT[x["id"]] = x["k"][2]
+        for a_, own in (c.get("ac") or {}).items():
+            for x in own.get("main", []) + own.get("hi", []) + (own.get("sys") or {}).get("picks", []):
+                if alive(x):
+                    PINS_AG[(x["id"], a_)].append(x["k"])
+    for x in (st_.get("next") or {}).get("picks", []):
+        if alive(x):
+            PINS[x["id"]].append(("k", x["k"]))
+    print(f"   Taahhut: {len(PINS)} macta kupon secimi, {len(PINS_AG)} analizci secimi", flush=True)
+
+
+def consistent_score(mat, lim=6, pr=None, fns=()):
     """En olasi sonuc icindeki en olasi skor. Doner: ([ev, dep], skor olasiligi, [p1, px, p2]).
-    pr verilirse sonuc o olasiliklara gore secilir (heyetin ortak olasiliklari)."""
-    n = len(mat)
+    pr verilirse sonuc o olasiliklara gore secilir (heyetin ortak olasiliklari).
+    fns: skorun saglamasi gereken kosullar (yayinlanmis kupon secimleri). Once 'en olasi sonuc + kosullar',
+    olmazsa 'kosullar', o da olmazsa yalnizca en olasi sonuc."""
+    n = min(len(mat), lim)
     if pr is None:
         pr = [0.0, 0.0, 0.0]
-        for i in range(n):
-            for j in range(n):
+        for i in range(len(mat)):
+            for j in range(len(mat)):
                 pr[_oc(i, j)] += mat[i][j]
     o = max(range(3), key=lambda x: pr[x])
-    i, j = max(((i, j) for i in range(min(n, lim)) for j in range(min(n, lim)) if _oc(i, j) == o),
-               key=lambda t_: mat[t_[0]][t_[1]])
-    return [i, j], mat[i][j], pr
+    allc = [(i, j) for i in range(n) for j in range(n)]
+    ok = lambda t_: all(f(*t_) for f in fns)
+    for cand in ([t_ for t_ in allc if _oc(*t_) == o and ok(t_)], [t_ for t_ in allc if ok(t_)],
+                 [t_ for t_ in allc if _oc(*t_) == o]):
+        if cand:
+            i, j = max(cand, key=lambda t_: mat[t_[0]][t_[1]])
+            return [i, j], mat[i][j], pr
 
 
-def consistent_ht(lh, la, sc, f=0.45):
-    """Mac sonu skoruna (sc) ulasilabilen en olasi ilk yari skoru: P(IY i-j) * P(ikinci yari sc-i, sc-j)."""
+def consistent_ht(lh, la, sc, f=0.45, ht_out=None):
+    """Mac sonu skoruna (sc) ulasilabilen en olasi ilk yari skoru: P(IY i-j) * P(ikinci yari sc-i, sc-j).
+    ht_out: IY/MS kuponunda yayinlanmis ilk yari sonucu (varsa ona uyan skorlar arasindan)."""
     h1, a1 = pois(lh * f), pois(la * f)
     h2, a2 = pois(lh * (1 - f)), pois(la * (1 - f))
-    return list(max(((i, j) for i in range(sc[0] + 1) for j in range(sc[1] + 1)),
-                    key=lambda t_: h1[t_[0]] * a1[t_[1]] * h2[sc[0] - t_[0]] * a2[sc[1] - t_[1]]))
+    cand = [(i, j) for i in range(sc[0] + 1) for j in range(sc[1] + 1)]
+    if ht_out:
+        cand = [t_ for t_ in cand if OUTC[_oc(*t_)] == ht_out] or cand
+    return list(max(cand, key=lambda t_: h1[t_[0]] * a1[t_[1]] * h2[sc[0] - t_[0]] * a2[sc[1] - t_[1]]))
 
 
-def committee_p(lam_, pv, n=8):
+def committee_p(lam_, pv, n=8, mid=None):
     """Analiz365 = analizci heyeti: her analizcinin skor matrisi AG_W agirligiyla ortalanir. Bu tek dagilimdan
     sonuc olasiliklari, alt/ust, karsilikli gol, tahmini skor ve ilk yari skoru turetilir."""
     W = {a: AG_W.get(a, 1.0) for a in lam_}
@@ -1075,17 +1133,18 @@ def committee_p(lam_, pv, n=8):
     # skor, bu olasiliklara gore en olasi sonucun icinde heyet matrisinin en olasi skoru
     c = lambda k: wmean(pv, k)
     pr = [c("1"), c("X"), c("2")]
-    sc, sp, _ = consistent_score(M, pr=pr)
+    sc, sp, _ = consistent_score(M, pr=pr, fns=pin_fns(PINS.get(mid, [])))
     r4 = lambda v: round(v, 4)
     top = sorted(((M[i][j], i, j) for i in range(6) for j in range(6)), reverse=True)[:6]
     return {"lh": round(lh, 2), "la": round(la, 2), "p1": r4(pr[0]), "px": r4(pr[1]), "p2": r4(1 - pr[0] - pr[1]),
             "o15": r4(c("O1.5")), "o25": r4(c("O2.5")), "o35": r4(c("O3.5")), "btts": r4(c("KGV")),
-            "score": sc, "sp": r4(sp), "ht": consistent_ht(lh, la, sc),
+            "score": sc, "sp": r4(sp), "ht": consistent_ht(lh, la, sc, ht_out=PIN_HT.get(mid)),
             "top": [[i, j, r4(v)] for v, i, j in top]}
 
 
-def agent_score(lam_a):
-    return consistent_score(full_matrix(*lam_a))[0]
+def agent_score(lam_a, mid=None, a=None):
+    fns = pin_fns([("k", k) for k in PINS_AG.get((mid, a), [])]) if mid else ()
+    return consistent_score(full_matrix(*lam_a), fns=fns)[0]
 
 
 def analiz_tip(m):
@@ -1514,10 +1573,10 @@ def agent_best(m):
         return out
     for a in VOTE_AGENTS:
         if a in pv:
-            sa = agent_score(lam[a])                # analizci kendi tahmini skoruyla celisen secimi yapmaz
+            sa = agent_score(lam[a], m["id"], a)     # analizci kendi tahmini skoruyla celisen secimi yapmaz
             ka = [x for x in ks if wins(x, *sa)] or                 [x for x in AG_KEYS if m["o"].get(x) and wins(x, *sa)] or ks   # oran esigi esner, tutarlilik esnemez
             k = max(ka, key=lambda x: pv[a][x])
-            out[a] = [k, round(pv[a][k], 3), round(lam[a][0], 2), round(lam[a][1], 2)]
+            out[a] = [k, round(pv[a][k], 3), round(lam[a][0], 2), round(lam[a][1], 2), sa]
     if len(pv) >= 3 and m.get("src") != "model":
         cons = lambda k: wmean(pv, k)
         c = [k for k in ks if cons(k) >= 0.4 and wins(k, *m["p"]["score"])]
@@ -1534,7 +1593,7 @@ def own_coupons(pool, base):
     for m in pool:
         lam = {}
         pvs[m["id"]] = agent_probs(m, lam)
-        scs[m["id"]] = {a: agent_score(l_) for a, l_ in lam.items()}
+        scs[m["id"]] = {a: agent_score(l_, m["id"], a) for a, l_ in lam.items()}
         scs[m["id"]]["vr"] = m["p"]["score"]
     res = {}
     for a in AGENTS:
@@ -1898,6 +1957,9 @@ def molla(matches, done_by_id, src_team, use):
             return next((x[2] for x in m["p"]["top"] if x[:2] == sc), m["p"]["top"][0][2])
 
         best_sc = sorted(pool, key=lambda m: -(sprob(m) + penalty(m) / 3))[:5]
+        if len(picks) < 3 and not reserve:
+            print(f"   MollaMyrat: 48 saatlik pencerede yeterli mac yok ({len(pool)} mac), yeni kupon bekletiliyor", flush=True)
+            picks = []
         if picks:
             cpn = {"v": 2, "until": until,
                    "picks": res_ if reserve else [arec(x) for x in by_date(picks)],
@@ -2358,6 +2420,7 @@ def main():
         by_team[e["a"]["id"]].append(e)
 
     tables, lstats, fstr, mxfit = {}, {}, {}, {}
+    load_pins()
     for lg in LEAGUES:
         lid = lg["id"]
         season = [e for e in done if e["lg"] == lid and e["dt"] >= SEASON_START]
@@ -2543,6 +2606,10 @@ def main():
         ou_src = ss["ou25"]
         ss["kg"], got = pick(("KGV", "KGY"), (("Nesine", nes),))
         mk.update(got or {"KGV": odd(p["btts"]), "KGY": odd(1 - p["btts"])})
+        # cifte sans iki sonucu birden kapsar: orani her iki tek sonuc oranindan da dusuk olmalidir
+        for k_, (a_, b_) in (("1X", ("1", "X")), ("12", ("1", "2")), ("X2", ("X", "2"))):
+            if mk.get(k_) and mk.get(a_) and mk.get(b_) and mk[k_] > min(mk[a_], mk[b_]) - 0.005:
+                mk[k_] = round(max(1.01, 1 / (1 / mk[a_] + 1 / mk[b_])), 2)
         h2h = []
         for g in by_team[hid]:
             if {g["h"]["id"], g["a"]["id"]} == {hid, aid}:
@@ -2575,7 +2642,7 @@ def main():
         lam_ = {}
         pv_ = agent_probs(rec, lam_)
         if lam_:
-            p = rec["p"] = committee_p(lam_, {a: v for a, v in pv_.items() if a in lam_})
+            p = rec["p"] = committee_p(lam_, {a: v for a, v in pv_.items() if a in lam_}, mid=m["id"])
             pv0 = _pvec(p)
             for grp, ks_ in (("ms", ("1", "X", "2")), ("dc", ("1X", "12", "X2")), ("ou15", ("O1.5", "U1.5")),
                              ("ou25", ("O2.5", "U2.5")), ("ou35", ("O3.5", "U3.5")), ("kg", ("KGV", "KGY"))):
@@ -2588,6 +2655,9 @@ def main():
             if rec["xo"]["s"][1] == "model":
                 rec["xo"]["hf"] = [odd(x) for x in hp_hf]
             rec["xp"] = {"iy": [round(x, 3) for x in hp_iy], "hf": [round(x, 3) for x in hp_hf]}
+        for k_, (a_, b_) in (("1X", ("1", "X")), ("12", ("1", "2")), ("X2", ("X", "2"))):
+            if mk.get(k_) and mk.get(a_) and mk.get(b_) and mk[k_] > min(mk[a_], mk[b_]) - 0.005:
+                mk[k_] = round(max(1.01, 1 / (1 / mk[a_] + 1 / mk[b_])), 2)
         rec["ag"] = agent_best(rec)
         rec["cons"] = analiz_tip(rec)
         matches.append(rec)
