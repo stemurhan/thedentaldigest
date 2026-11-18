@@ -1652,6 +1652,7 @@ XK_TYPES = ("hf", "sk")               # ilk yari / mac sonucu (IY/MS) ve mac sko
 XK_ALL = ("iy", "y2", "hf", "sk")       # sonuclandirma: eski (ayri ilk yari / ikinci yari) kuponlar da
 XK_N = {"hf": 3, "sk": 3}               # her kupondaki mac sayisi
 XK_NEED = 0.30                          # IY/MS secenegi icin bir ajanin onay esigi
+XK_HF_MIN = 0.12                        # IY/MS kuponuna girecek secenegin en dusuk ortak olasiligi
 HF_KEYS = ["1/1", "1/X", "1/2", "X/1", "X/X", "X/2", "2/1", "2/X", "2/2"]
 HALF_F = 0.45                           # gollerin ilk yariya dusen payi (half_probs ile ayni)
 
@@ -1695,8 +1696,9 @@ def extra_coupons(pool, base):
     cand = {x: [] for x in XK_TYPES}
     for m in pool:
         lg = LGMAP.get(m["lg"]) or {}
-        if lg.get("tsdb") or m["lg"] == "fifa.friendly":   # devre skoru alinamayan / ongorulemez maclar
+        if m["lg"] == "fifa.friendly":                   # hazirlik maclari ongorulemez
             continue
+        no_ht = bool(lg.get("tsdb"))                     # TheSportsDB ilk yari skoru vermez: IY/MS'e giremez, skor kuponuna girer
         lam = {}
         agent_probs(m, lam)
         ags = [a for a in VOTE_AGENTS if a in lam]
@@ -1717,13 +1719,17 @@ def extra_coupons(pool, base):
                 pa[a] = [x / sum(inv) for x in inv]
         best = None
         sc0, ht0 = m["p"]["score"], m["p"].get("ht") or [0, 0]
+        if no_ht:
+            HF_SKIP = True
+        else:
+            HF_SKIP = False
         hf_ok = OUTC[_oc(*ht0)] + "/" + OUTC[_oc(*sc0)]   # tahmini ilk yari ve mac sonu skoruyla ayni IY/MS
         for i, r in enumerate(HF_KEYS):
-            if r != hf_ok:
+            if HF_SKIP or r != hf_ok:
                 continue
             cons = sum(W[a] * pa[a][i] for a in ags) / tw
             o = (xo.get("hf") or [None] * 9)[i] or odd(cons)
-            if o < 1.3 or cons < XK_NEED:
+            if o < 1.3 or cons < XK_HF_MIN:                 # dokuz secenekli pazar: tek sonuc nadiren %30'u gecer
                 continue
             row = [[round(pa[a][i], 3), int(pa[a][i] >= XK_NEED)] if a in pa else None for a in VOTE_AGENTS]
             ev = cons * o - 1
@@ -1998,6 +2004,13 @@ def molla(matches, done_by_id, src_team, use):
                     cur["sys"] = sc_
     # 2c) devre ve skor kuponlari (guncel kuponda yoksa bir kez uretilir; baslamis maclar alinmaz)
     keys = sorted(state["coupons"])
+    if keys and any(not (state["coupons"][keys[-1]].get(x) or {}).get("picks") for x in XK_TYPES)             and state["coupons"][keys[-1]].get("xk", 0) >= 2:
+        cur = state["coupons"][keys[-1]]
+        ex = extra_coupons(window(keys[-1]), base)
+        for x in XK_TYPES:
+            if not (cur.get(x) or {}).get("picks") and x in ex:
+                cur[x] = ex[x]
+                print(f"   MollaMyrat: bos kalan {x} kuponu dolduruldu ({len(ex[x]['picks'])} mac)", flush=True)
     if keys and state["coupons"][keys[-1]].get("xk", 0) < 2:
         cur = state["coupons"][keys[-1]]
         cur.pop("iy", None)                          # ayri ilk yari / ikinci yari kuponlari IY/MS kuponuyla degisti

@@ -387,7 +387,7 @@
     if (!c) return `<div class="pagehead"><h1>${t('tipc_title')}</h1></div><div class="card empty">${t('m_none')}</div>`;
     const mk = ['main', 'hi', 'sys'].includes(flt.mk) ? flt.mk : 'main', owners = ['all'].concat(AGENTS.map(x => x[0]));
     const TAB = [['main', '★', 'ak_h_main'], ['hi', '🔥', 'ak_h_hi'], ['sys', '🎯', 'ak_h_sys']];
-    const xs = mk === 'main' ? XK.filter(x => kPicks(c, x).length) : [];
+    const xs = mk === 'main' ? XK : [];                    // Banko sekmesinde skor ve IY/MS kuponu her zaman gorunur
     return `<div class="pagehead"><h1>${t('tipc_title')}</h1><small class="num">${cRange(c)}</small></div>
       <div class="aktabs" role="tablist">${TAB.map(([k, ic, h]) => `<button role="tab" aria-selected="${mk === k}" class="${mk === k ? 'on' : ''}" data-mk="${k}"><i>${ic}</i><b>${t(h)}</b></button>`).join('')}</div>
       ${per.length > 1 ? `<div class="chips akper">${per.map((x, i) => { const dup = per.slice(0, i).some(y => cRange(y) === cRange(x));
