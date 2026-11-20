@@ -1,14 +1,22 @@
 name: Kuponlari sonuclandir
 
+# GitHub'in zamanlayicisi yogunlukta tetikleri saatlerce geciktiriyor ya da atliyor (30 dakikalik
+# gorev 6-8 saatte bir calisiyordu). Bu yuzden bu is akisi kendi kendini surdurur:
+#  * bir calisma ~5,5 saat boyunca 8 dakikada bir kuponlari sonuclandirir,
+#  * bulten 2 saattir yenilenmediyse "Bulten guncelle" is akisini baslatir,
+#  * bitmeden once kendini yeniden baslatir (yerlesik GITHUB_TOKEN ile; kisisel anahtar gerekmez).
+# Asagidaki zamanlanmis tetik yalnizca zincir bir sekilde koparsa yeniden baslatmak icindir.
 on:
   schedule:
-    # GitHub zamanlanmis gorevleri yogunlukta atlayabiliyor: saatte iki tetik (kalabalik olmayan
-    # dakikalar) ve her tetikte ~25 dk boyunca 8 dakikada bir sonuclandirma yapilir
     - cron: "7,37 * * * *"
   workflow_dispatch:
+  push:                   # bu dosya degisince zincir hemen baslasin
+    paths:
+      - ".github/workflows/sonuclandir.yml"
 
 permissions:
   contents: read
+  actions: write          # "Bulten guncelle"yi ve bu is akisini yeniden baslatabilmek icin
 
 concurrency:
   group: sonuclandir
@@ -17,19 +25,37 @@ concurrency:
 jobs:
   sonuclandir:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Kuponlari sonuclandir
+      - name: Kuponlari sonuclandir (8 dakikada bir, ~5,5 saat)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          for i in 1 2 3 4; do
+          start=$(date +%s)
+          while :; do
             git fetch -q --depth 1 origin main && git reset -q --hard FETCH_HEAD || true
-            python scripts/settle.py || exit 1
-            [ "$i" = 4 ] || sleep 480
+            python scripts/settle.py || echo "sonuclandirma hatasi (bir sonraki turda yeniden denenecek)"
+            # bulten 2 saattir yenilenmediyse (ve su an calismiyorsa) guncellemeyi baslat
+            last=$(gh run list --workflow guncelle.yml -L 1 --json createdAt,status \
+                   --jq '.[0] | "\(.status) \(.createdAt)"' 2>/dev/null || echo "")
+            st=${last%% *}; ts=${last#* }
+            age=999999
+            [ -n "$ts" ] && age=$(( $(date +%s) - $(date -d "$ts" +%s) ))
+            if [ "$st" = "completed" ] && [ "$age" -ge 6900 ]; then
+              echo "bulten $((age / 60)) dakikadir yenilenmedi: guncelleme baslatiliyor"
+              gh workflow run guncelle.yml --ref main || true
+            fi
+            [ $(( $(date +%s) - start )) -ge 19800 ] && break      # 5,5 saat
+            sleep 480
           done
+      - name: Zinciri surdur (bu is akisini yeniden baslat)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run sonuclandir.yml --ref main
