@@ -104,6 +104,13 @@ LEAGUES = [
     L("jpn.1", "Japonya J1 Ligi", "Джей-лига 1 (Япония)", "Ýaponiýa J1 ligasy", "wd", table=False, b="JPN"),
     L("chi.1", "Şili Primera", "Примера Чили", "Çili Primera ligasy", "wd", table=False, b="CHI"),
     L("aus.1", "Avustralya A-League", "A-League (Австралия)", "Awstraliýa A-League", "wd", b="AUS"),
+    # ESPN'de olmayan Dogu Avrupa ligleri: TheSportsDB (gol / kart ayrintisi ve ilk yari skoru yok)
+    L("pol.1", "Polonya Ekstraklasa", "Экстракласа (Польша)", "Polşa Ekstraklasa", "ot", tsdb=4422, b="POL"),
+    L("cze.1", "Çekya 1. Lig", "Первая лига Чехии", "Çehiýa 1-nji ligasy", "ot", tsdb=4631, b="CZE"),
+    L("cro.1", "Hırvatistan 1. HNL", "Первая лига Хорватии", "Horwatiýa 1-nji ligasy", "ot", tsdb=4629, b="CRO"),
+    L("srb.1", "Sırbistan Süper Lig", "Суперлига Сербии", "Serbiýa Superligasy", "ot", tsdb=4671, b="SRB"),
+    L("rou.1", "Romanya Liga 1", "Лига 1 (Румыния)", "Rumyniýa Liga 1", "ot", tsdb=4691, b="ROU"),
+    L("ukr.1", "Ukrayna Premier Lig", "Премьер-лига Украины", "Ukraina Premýer-ligasy", "ot", tsdb=4354, b="UKR"),
 ]
 LGMAP = {l["id"]: l for l in LEAGUES}
 
@@ -423,7 +430,7 @@ def load_apf_preds(upcoming):
 def tsdb_events(lg):
     """Bir ligin sezon fiksturunu tur tur okur; bitmis turlar onbellekten gelir."""
     lid, season = lg["tsdb"], f"{SEASON_START.year}-{SEASON_START.year + 1}"
-    out, fails = [], 0
+    out, fails, empties = [], 0, 0
     for rnd in range(1, 51):
         path = os.path.join(CACHE, "tsdb", f"{lid}_{season}_{rnd}.json")
         c = cache_read(path)
@@ -471,7 +478,11 @@ def tsdb_events(lg):
                         continue
                 cache_write(path, {"ts": time.time(), "ev": evs})
         if not evs:
-            break
+            empties += 1
+            if empties >= 2:                  # iki bos tur ust uste: sezon fiksturu bitti
+                break
+            continue
+        empties = 0
         for e in evs:
             e["tr"] = [lid, rnd, season]      # canli skor: tarayici tum turu tek istekle okur
         out.extend(evs)
@@ -769,7 +780,8 @@ LG_COUNTRY = {"tur.1": "Q43", "tur.2": "Q43", "tur.3": "Q43", "rus.1": "Q159", "
               "fra.1": "Q142", "fra.2": "Q142", "ned.1": "Q55", "ned.2": "Q55", "por.1": "Q45", "por.2": "Q45", "bel.1": "Q31",
               "eng.5": "Q145", "sco.2": "Q145", "gre.1": "Q41", "aut.1": "Q40", "sui.1": "Q39", "den.1": "Q35",
               "swe.1": "Q34", "nor.1": "Q20", "ksa.1": "Q851", "bra.1": "Q155", "bra.2": "Q155", "arg.1": "Q414",
-              "usa.1": "Q30", "mex.1": "Q96", "jpn.1": "Q17", "chi.1": "Q298", "aus.1": "Q408"}
+              "usa.1": "Q30", "mex.1": "Q96", "jpn.1": "Q17", "chi.1": "Q298", "aus.1": "Q408",
+              "pol.1": "Q36", "cze.1": "Q213", "cro.1": "Q224", "srb.1": "Q403", "rou.1": "Q218", "ukr.1": "Q212"}
 # Avrupa kupalarina katilan diger ulkeler
 EURO_Q = ["Q41", "Q40", "Q39", "Q213", "Q36", "Q212", "Q35", "Q34", "Q20", "Q224", "Q403", "Q218", "Q219",
           "Q28", "Q229", "Q801", "Q227", "Q232", "Q214", "Q215", "Q33", "Q27", "Q225", "Q217", "Q399", "Q230",
@@ -1381,9 +1393,11 @@ def wmean(pv, k):
 
 def backtest_agents(done, days=45):
     """Geriye donuk test: son `days` gunun lig maclari, her biri yalnizca kendisinden ONCEKI maclarin verisiyle
-    tahmin edilip gercek sonucla karsilastirilir. Piyasa ajaninin gecmis oranlari olmadigi icin o test edilemez.
+    tahmin edilip gercek sonucla karsilastirilir. Piyasa ajani, sitenin yayinladigi oran arsivi (data/odds.json)
+    olan maclarda test edilir; arsiv 45 gunluk oldugu icin orneklem zamanla buyur.
     Doner: {ajan: {"n", "hit" (mac sonucu isabeti), "ou" (2.5 alt/ust isabeti), "br" (Brier, dusuk iyi)}}."""
-    res = {a: {"n": 0, "hit": 0, "ou": 0, "br": 0.0} for a in ("fn", "st", "fm")}
+    res = {a: {"n": 0, "hit": 0, "ou": 0, "br": 0.0} for a in ("fn", "st", "fm", "mk")}
+    arc = cache_read(os.path.join(ROOT, "data", "odds.json")) or {}
     start = NOW - timedelta(days=days)
     seen, th, mxc = defaultdict(list), defaultdict(list), {}
     for e in sorted((x for x in done if x["dt"] >= SEASON_START), key=lambda x: x["dt"]):
@@ -1420,6 +1434,10 @@ def backtest_agents(done, days=45):
                     return sum(w * v for w, v in zip(ws, vals)) / sum(ws)
                 lam["fm"] = (_clampl(0.5 * (wavg(gh, hid, True) + wavg(ga_, aid, False)) * 1.10),
                              _clampl(0.5 * (wavg(ga_, aid, True) + wavg(gh, hid, False)) * 0.92))
+            oa = (arc.get(e["id"]) or {}).get("o") or {}
+            if all(oa.get(k_) for k_ in ("1", "X", "2")):
+                iv = [1 / oa["1"], 1 / oa["X"], 1 / oa["2"]]
+                lam["mk"] = market_lambdas(*[x / sum(iv) for x in iv])
             out = 0 if e["hs"] > e["as"] else 1 if e["hs"] == e["as"] else 2
             for a, (lh, la) in lam.items():
                 pr = predict(lh, la)
@@ -2577,7 +2595,8 @@ def main():
             for a_, r in agbt.items():
                 if r["n"] >= 100 and r["br"]:
                     AG_W[a_] = round(math.exp(-10 * (r["br"] - min(brs))), 3)
-            AG_W["mk"] = round(max(AG_W[a_] for a_ in ("fn", "st", "fm")) * 1.15, 3)   # piyasa: en iyi modelden biraz agir
+            if not (agbt.get("mk", {}).get("n", 0) >= 100 and agbt["mk"]["br"]):
+                AG_W["mk"] = round(max(AG_W[a_] for a_ in ("fn", "st", "fm")) * 1.15, 3)   # yeterli arsiv yoksa: en iyi modelden biraz agir
         print("   Geriye donuk test (45 gun): " + ", ".join(
             f"{a_} {r['hit']}/{r['n']} Brier {r['br']} agirlik {AG_W[a_]}" for a_, r in agbt.items()), flush=True)
     except Exception as ex:

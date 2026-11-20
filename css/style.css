@@ -913,3 +913,20 @@ button.morebtn{cursor:pointer;width:100%}
 .srcleg{display:flex;align-items:center;gap:10px;margin:2px 2px 12px;font-size:11.5px;line-height:1.45;color:var(--mut)}
 .srcleg .ob.demo{flex:none;min-height:0;padding:4px 9px;pointer-events:none}
 .srcleg .ob.demo b{font-size:12px}
+
+/* ---------- v19: canli istatistik, sari kart, sifre formu ---------- */
+.lvg.yel b{color:#ffd54f}
+.lvst{display:grid;gap:9px}
+.lst{display:grid;grid-template-columns:52px 1fr 52px;align-items:center;row-gap:4px;font-size:12.5px}
+.lst span{text-align:center;color:var(--mut)}
+.lst b{font-weight:700}
+.lst b:last-of-type{text-align:right}
+.lst b.hi{color:var(--pri)}
+.lst .bar{grid-column:1/-1;height:4px;border-radius:3px;background:#3a2a2e;overflow:hidden;display:block}
+.lst .bar em{display:block;height:100%;background:var(--pri)}
+.pwf{max-width:520px}
+.fl a{margin-right:4px}
+/* ---------- v19b: okunabilirlik (en kucuk yazilar 10.5px) ---------- */
+.srcb,.axpk small{font-size:10px}
+.acc small,.ant .sc small{font-size:10.5px}
+.ob small,.kpi small,.mtime small,.xgr,.bbp small,.tipc-r .to small,.agk1>span small,.agtile .nm,.anl3,.ans small,.axverd small,.axr1 small{font-size:10.5px}

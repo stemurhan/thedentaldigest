@@ -270,7 +270,7 @@
     $('foot').innerHTML = `
       <div class="fl"><span class="age">18+</span><span>${t('foot_18')}</span></div>
       <div class="fl"><span>${t('foot_disc')}</span></div>
-      <div class="fl"><a href="#/kurallar">${t('rules')}</a><span>${t('updated')}: ${up}</span><span>${t('tznote')}</span><span>© ${new Date().getFullYear()} Analiz365</span></div>`;
+      <div class="fl"><a href="#/kurallar">${t('rules')}</a><a href="#/gizlilik">${t('privacy')}</a><span>${t('updated')}: ${up}</span><span>${t('tznote')}</span><span>© ${new Date().getFullYear()} Analiz365</span></div>`;
     document.documentElement.lang = lang;
     $('lang').value = lang;
     $('slip').setAttribute('aria-label', t('coupon'));
@@ -710,6 +710,15 @@
     let h = 5381; for (let i = 0; i < txt.length; i++) h = ((h << 5) + h + txt.charCodeAt(i)) >>> 0;
     return 'x' + h.toString(16);
   }
+  async function doPwChange(f) {
+    const pw = f.password.value;
+    let e = pw.length < 6 ? t('e_pass') : pw !== f.password2.value ? t('e_match') : '';
+    if (!e && !SB) { const u = users[user]; if (!u || u.hash !== await sha(u.salt + f.old.value)) e = t('pw_bad_old'); }
+    if (!e && SB) { const { error } = await SB.auth.updateUser({ password: pw }); if (error) e = error.message || t('e_net'); }
+    if (e) { authErr.pw = e; return render(); }
+    if (!SB) { const salt = Math.random().toString(36).slice(2); users[user].salt = salt; users[user].hash = await sha(salt + pw); LS.set('users', users); }
+    authErr.pw = ''; toast(t('pw_done')); render();
+  }
   async function doRegister(f) {
     const u = f.username.value.trim(), pw = f.password.value;
     let e = '';
@@ -774,7 +783,12 @@
           <div class="kpi"><small>${t('lost')}</small><b style="color:var(--red)">${n('lost')}</b></div>
           <div class="kpi"><small>${t('pending')}</small><b>${n('pending')}</b></div></div>
         <div class="prof-a"><a class="btn" href="#/kuponlarim">${t('mycoupons')}</a><button class="btn ghost" data-act="resetbal">${t('reset_balance')}</button></div>
-      </div>${favCard()}${notifCard()}<p class="note">${t(SB ? 'srv_acc' : 'demo_acc')}</p>`;
+      </div><form class="card sec auth pwf" data-form="pw" novalidate><h2>🔒 ${t('pw_change')}</h2>
+        <input type="text" name="username" autocomplete="username" value="${esc(u.name)}" hidden>
+        ${SB ? '' : `<label>${t('pw_old')}<input name="old" type="password" autocomplete="current-password" required></label>`}
+        <label>${t('pw_new')}<input name="password" type="password" autocomplete="new-password" required></label>
+        <label>${t('password2')}<input name="password2" type="password" autocomplete="new-password" required></label>
+        <div class="err" role="alert">${esc(authErr.pw || '')}</div><button class="btn" type="submit">${t('pw_save')}</button></form>${favCard()}${notifCard()}<p class="note">${t(SB ? 'srv_acc' : 'demo_acc')}</p>`;
   }
 
   // ---------- bulten ----------
@@ -1347,6 +1361,7 @@
         <div class="mid" data-lvh="${r.id}">${l ? '' : `${t('lv_started')}<small>${timeOf(r.d)}</small>`}</div>
         <div class="side-t">${logo(r.a)}<span>${esc(tn(r.a))} ${favBtn(r.a)}</span></div></div></div></div>
       <div class="card sec" hidden><h2>⚽ ${t('lv_events')}</h2><div class="lvgl" data-lvg="${r.id}"></div></div>
+      <div class="card sec" hidden><h2>📊 ${t('lv_stats')}</h2><div class="lvst" data-lvs="${r.id}"></div></div>
       <p class="note">${t('lv_note')} <a href="#/sonuclar">${t('results')} →</a></p>`;
   }
   function viewMatch(id) {
@@ -1379,7 +1394,7 @@
           </div>
         </div>
         <div class="dtabs" role="tablist">${TABS.map(([k, l]) => `<button role="tab" aria-selected="${dtab === k}" class="${dtab === k ? 'on' : ''}" data-dtab="${k}">${l}</button>`).join('')}</div>
-      </div>${Date.now() > new Date(m.d).getTime() ? `<div class="card sec" hidden><h2>⚽ ${t('lv_events')}</h2><div class="lvgl" data-lvg="${m.id}"></div></div>` : ''}${body}`;
+      </div>${Date.now() > new Date(m.d).getTime() ? `<div class="card sec" hidden><h2>⚽ ${t('lv_events')}</h2><div class="lvgl" data-lvg="${m.id}"></div></div><div class="card sec" hidden><h2>📊 ${t('lv_stats')}</h2><div class="lvst" data-lvs="${m.id}"></div></div>` : ''}${body}`;
   }
   // ---------- basketbol: mac detayi ----------
   function bbTableHtml(hl) {
@@ -1938,6 +1953,8 @@
       c.sels.map(x => ({ teams: nm(x, 'h') + ' – ' + nm(x, 'a'), sub: mkLabel(x.k, null, x.ln) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: (+x.o).toFixed(2), mark: mark(x.ok) })),
       { tot: tot.toFixed(2), stake: money(MIN_STAKE), win: money(Math.min(MIN_STAKE * tot, MAX_WIN)) }, c.sels.map(x => ({ m: x.m, k: x.k })));
   }
+  const viewPrivacy = () => `<div class="pagehead"><h1>${t('privacy')}</h1></div><div class="card rules"><ol>${t('pv_items').map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+    <p class="note">${t('pv_upd')}</p></div>`;
   const viewRules = () => `<div class="pagehead"><h1>${t('r_title')}</h1></div><div class="card rules"><ol>${t('r_items').map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>`;
 
   // ---------- canli skor (tarayicidan dogrudan, dakikada bir) ----------
@@ -1986,9 +2003,14 @@
       if (l) el.innerHTML = `<span class="${l.s === 'in' ? 'lsc' : ''}">${l.hs} - ${l.as}</span><small class="lclk ${l.s === 'in' ? 'on' : ''}">${esc(l.s === 'post' ? t('lv_ft') : l.c || t('live'))}</small>`;
     });
     document.querySelectorAll('[data-lvg]').forEach(el => {
-      const l = LIVE[el.dataset.lvg], g = liveEvents(l);
+      const l = LIVE[el.dataset.lvg], g = liveEvents(l, true);
       el.closest('.card').hidden = !g.length;
-      el.innerHTML = g.map(x => `<div class="lvg ${x.s}${x.t === 'r' ? ' red' : ''}"><b class="num">${esc(x.m)}</b><span>${x.t === 'r' ? '🟥' : '⚽'} ${esc(x.p || '')}${x.pk ? ' (' + t('lv_pen') + ')' : ''}${x.og ? ' (' + t('lv_og') + ')' : ''}</span></div>`).join('');
+      el.innerHTML = g.map(x => `<div class="lvg ${x.s}${x.t === 'r' ? ' red' : x.t === 'y' ? ' yel' : ''}"><b class="num">${esc(x.m)}</b><span>${x.t === 'r' ? '🟥' : x.t === 'y' ? '🟨' : '⚽'} ${esc(x.p || '')}${x.pk ? ' (' + t('lv_pen') + ')' : ''}${x.og ? ' (' + t('lv_og') + ')' : ''}</span></div>`).join('');
+    });
+    document.querySelectorAll('[data-lvs]').forEach(el => {
+      const s = STATS[el.dataset.lvs], html = s ? statRows(s) : '';
+      el.closest('.card').hidden = !html;
+      if (html) el.innerHTML = html;
     });
     ['fb', 'bb'].forEach(sp => {
       const n = liveCands(sp).filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post')).length;
@@ -2018,9 +2040,10 @@
   }
   // gol ve kirmizi kartlar dakika sirasiyla (canli kutusu ve mac sayfasi icin)
   const evMin = x => { const mm = /^(\d+)(?:'\+?(\d+))?/.exec(x.m || ''); return mm ? +mm[1] + (mm[2] ? +mm[2] / 100 : 0) : 999; };
-  function liveEvents(l) {
+  function liveEvents(l, yel) {
     if (!l) return [];
-    return [...(l.g || []).map(x => Object.assign({ t: 'g' }, x)), ...(l.r || []).map(x => Object.assign({ t: 'r' }, x))].sort((a, b) => evMin(a) - evMin(b));
+    return [...(l.g || []).map(x => Object.assign({ t: 'g' }, x)), ...(l.r || []).map(x => Object.assign({ t: 'r' }, x)),
+      ...(yel ? l.y || [] : []).map(x => Object.assign({ t: 'y' }, x))].sort((a, b) => evMin(a) - evMin(b));
   }
   function evLine(m, l) {
     const ev = liveEvents(l);
@@ -2096,6 +2119,9 @@
               p: ((x.athletesInvolved || [])[0] || {}).displayName || '', og: !!x.ownGoal, pk: !!x.penaltyKick })),
             r: lg === 'nba' ? null : (e.competitions[0].details || []).filter(x => x.redCard).map(x => ({
               m: (x.clock || {}).displayValue || '', s: String((x.team || {}).id) === String(h.team.id) ? 'h' : 'a',
+              p: ((x.athletesInvolved || [])[0] || {}).displayName || '' })),
+            y: lg === 'nba' ? null : (e.competitions[0].details || []).filter(x => x.yellowCard && !x.redCard).map(x => ({
+              m: (x.clock || {}).displayValue || '', s: String((x.team || {}).id) === String(h.team.id) ? 'h' : 'a',
               p: ((x.athletesInvolved || [])[0] || {}).displayName || '' })) });
         });
       }).catch(() => { }));
@@ -2116,8 +2142,39 @@
       }
     })().then(liveChanged);
     await Promise.all(jobs);
+    await Promise.all(statJobs());      // skorlar geldikten sonra: yeni baslayan mac da hemen istatistik alir
     polling = false;
     liveChanged();
+  }
+  // acik mac sayfasinin canli istatistikleri (ESPN mac ozeti; en sik 55 saniyede bir)
+  function statJobs() {
+    const jobs = [];
+    document.querySelectorAll('[data-lvs]').forEach(el => {
+      const id = el.dataset.lvs, m = MATCH[id] || RECENT.find(x => x.id === id);
+      if (!m || isBB(m) || /^T/.test(id) || !LIVE[id] || Date.now() - (statAt[id] || 0) < 55e3) return;
+      if (STATS[id] && LIVE[id].s === 'post') return;
+      statAt[id] = Date.now();
+      jobs.push(tfetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${m.lg}/summary?event=${id}`).then(r => r.json()).then(d => {
+        const hc = (((d.header || {}).competitions || [])[0] || {}).competitors || [];
+        const hid = String(((hc.find(x => x.homeAway === 'home') || {}).team || {}).id || '');
+        const tm = (d.boxscore || {}).teams || [];
+        if (tm.length !== 2) return;
+        const val = x => { const o = {}; (x.statistics || []).forEach(s => { o[s.name] = parseFloat(s.displayValue); }); return o; };
+        const H = tm.find(x => String((x.team || {}).id) === hid) || tm[0], A = tm.find(x => x !== H);
+        STATS[id] = { h: val(H), a: val(A) };
+      }).catch(() => { }));
+    });
+    return jobs;
+  }
+  const STATS = {}, statAt = {};
+  const LV_STATS = [['possessionPct', 'st_pos', '%'], ['totalShots', 'st_sh'], ['shotsOnTarget', 'st_sot'], ['wonCorners', 'st_cor'],
+    ['foulsCommitted', 'st_foul'], ['yellowCards', 'st_yc'], ['redCards', 'st_rc'], ['offsides', 'st_off'], ['saves', 'st_sav']];
+  function statRows(s) {
+    return LV_STATS.filter(([k]) => !isNaN(s.h[k]) && !isNaN(s.a[k])).map(([k, l, u]) => {
+      const h = s.h[k], a = s.a[k], tot = h + a, p = tot ? Math.round(100 * h / tot) : 50, hi = h > a ? 'h' : a > h ? 'a' : '';
+      return `<div class="lst"><b class="num${hi === 'h' ? ' hi' : ''}">${h}${u || ''}</b><span>${t(l)}</span><b class="num${hi === 'a' ? ' hi' : ''}">${a}${u || ''}</b>
+        <i class="bar"><em style="width:${p}%"></em></i></div>`;
+    }).join('');
   }
   function liveChanged() {
     let fin = false;
@@ -2152,12 +2209,14 @@
     else if (h.startsWith('#/sonuclar')) { html = viewResults(); title = t('results'); }
     else if (h.startsWith('#/kuponlarim')) { html = viewCoupons(); title = t('mycoupons'); }
     else if (h.startsWith('#/kurallar')) { html = viewRules(); title = t('rules'); }
+    else if (h.startsWith('#/gizlilik')) { html = viewPrivacy(); title = t('privacy'); }
     else if (h.startsWith('#/mollamyrat')) { html = viewMolla(); title = t('tipc_title'); }
     else if (h.startsWith('#/profil')) { html = viewProfile(); title = t('profile'); }
     else { html = viewBulletin(); title = t('bulletin'); }
     $('main').innerHTML = html;
     document.title = title + ' — Analiz365';
     renderChrome(); renderSide(); renderSlip(); syncStrips(); paintLive();
+    const sj = statJobs(); if (sj.length) Promise.all(sj).then(paintLive);
     if (h !== lastRoute) { window.scrollTo(0, 0); lastRoute = h; }
   }
   let toastT;
@@ -2235,7 +2294,7 @@
   document.addEventListener('submit', e => {
     const f = e.target.closest('form[data-form]'); if (!f) return;
     e.preventDefault();
-    (f.dataset.form === 'reg' ? doRegister : doLogin)(f);
+    (f.dataset.form === 'reg' ? doRegister : f.dataset.form === 'pw' ? doPwChange : doLogin)(f);
   });
   $('slipbar').addEventListener('click', () => document.body.classList.add('slipopen'));
   $('scrim').addEventListener('click', () => document.body.classList.remove('slipopen'));

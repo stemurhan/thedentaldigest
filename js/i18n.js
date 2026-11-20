@@ -893,3 +893,52 @@ Object.assign(window.I18N.tk, { lv_events: 'Gollar we gyzyl kartoçkalar', n_red
 Object.assign(window.I18N.tr, { src_l: 'Oran kaynağı', src_leg: 'Kesik çerçeveli ve ~ işaretli oranlar Analiz365 modelinin hesapladığı orandır: bu pazarda bahis sitelerinde henüz oran açılmamış. Diğer oranlar bet365, Nesine veya DraftKings’ten gelir; oranın üstüne gelince kaynağı görünür.' });
 Object.assign(window.I18N.ru, { src_l: 'Источник коэффициента', src_leg: 'Коэффициенты в пунктирной рамке и со знаком ~ рассчитаны моделью Analiz365: букмекеры ещё не открыли этот рынок. Остальные — от bet365, Nesine или DraftKings; источник виден при наведении.' });
 Object.assign(window.I18N.tk, { src_l: 'Koeffisiýent çeşmesi', src_leg: 'Kesik çarçuwaly we ~ belgili koeffisiýentler Analiz365 modeli tarapyndan hasaplanýar: bu bazarda saýtlarda entek koeffisiýent açylmady. Beýlekiler bet365, Nesine ýa-da DraftKings-den gelýär; üstüne geleniňde çeşmesi görünýär.' });
+
+Object.assign(window.I18N.tr, {
+  lv_stats: 'Maç istatistikleri', st_pos: 'Topla oynama', st_sh: 'Şut', st_sot: 'İsabetli şut', st_cor: 'Korner', st_foul: 'Faul',
+  st_yc: 'Sarı kart', st_rc: 'Kırmızı kart', st_off: 'Ofsayt', st_sav: 'Kurtarış', lv_events: 'Goller ve kartlar',
+  lv_note: 'Maç başladı: skor, dakika, goller, kartlar ve maç istatistikleri her dakika otomatik yenilenir (bazı alt liglerde yalnızca skor). Maç bitince sonucu ve tahminin tutup tutmadığını Biten Maçlar sayfasında görebilirsin.',
+  privacy: 'Gizlilik', pv_upd: 'Son güncelleme: Kasım 2026.',
+  pv_items: [
+    'Analiz365 reklam ya da izleme çerezi kullanmaz; ziyaretçi verisi satılmaz ve üçüncü taraflarla paylaşılmaz.',
+    'Hesap açarsan kullanıcı adın, isteğe bağlı telefon numaran, kuponların, sanal bakiyen ve favori takımların saklanır. Bu bilgiler yalnızca sana gösterilir.',
+    'Şifren düz metin olarak saklanmaz: hesap sunucusunda (Supabase) güvenli biçimde şifrelenir; sunucu kapalıyken kullanılan demo hesapta ise yalnızca bu cihazda tuzlanmış özet olarak tutulur.',
+    'Dil, bahis tutarı, favoriler ve bildirim tercihi gibi ayarlar tarayıcının yerel deposunda tutulur; tarayıcı verilerini silerek bunları temizleyebilirsin.',
+    'Canlı skorlar ve maç bilgileri tarayıcın tarafından doğrudan ESPN ve TheSportsDB’den okunur; bu isteklerde kişisel bilgin gönderilmez.',
+    'Bildirimleri açarsan gol ve maç sonu uyarıları yalnızca bu cihazda, tarayıcının bildirim izniyle gösterilir; izni istediğin zaman tarayıcı ayarlarından kaldırabilirsin.',
+    'Site 18 yaş altındaki kişilere yönelik değildir. Sanal bakiye gerçek para değildir; site bahis almaz ve ödeme bilgisi istemez.'
+  ],
+  pw_change: 'Şifre değiştir', pw_old: 'Mevcut şifre', pw_new: 'Yeni şifre', pw_save: 'Şifreyi kaydet', pw_done: 'Şifren değiştirildi', pw_bad_old: 'Mevcut şifre yanlış'
+});
+Object.assign(window.I18N.ru, {
+  lv_stats: 'Статистика матча', st_pos: 'Владение', st_sh: 'Удары', st_sot: 'В створ', st_cor: 'Угловые', st_foul: 'Фолы',
+  st_yc: 'Жёлтые', st_rc: 'Красные', st_off: 'Офсайды', st_sav: 'Сейвы', lv_events: 'Голы и карточки',
+  lv_note: 'Матч начался: счёт, минута, голы, карточки и статистика обновляются каждую минуту (в некоторых низших лигах — только счёт). После матча результат и прогноз — на странице «Завершённые».',
+  privacy: 'Конфиденциальность', pv_upd: 'Обновлено: ноябрь 2026.',
+  pv_items: [
+    'Analiz365 не использует рекламные и отслеживающие cookie; данные посетителей не продаются и не передаются третьим лицам.',
+    'При регистрации хранятся имя пользователя, телефон (по желанию), купоны, виртуальный баланс и избранные команды. Они видны только вам.',
+    'Пароль не хранится в открытом виде: на сервере аккаунтов (Supabase) он надёжно зашифрован, а в демо-аккаунте хранится только на этом устройстве в виде хэша с солью.',
+    'Настройки (язык, ставка, избранное, уведомления) хранятся в локальном хранилище браузера; их можно удалить, очистив данные браузера.',
+    'Живые счета и данные матчей браузер получает напрямую с ESPN и TheSportsDB; личные данные при этом не передаются.',
+    'Уведомления о голах и концах матчей показываются только на этом устройстве с разрешения браузера; разрешение можно отозвать в настройках браузера.',
+    'Сайт не предназначен для лиц младше 18 лет. Виртуальный баланс — не деньги; сайт не принимает ставки и не запрашивает платёжные данные.'
+  ],
+  pw_change: 'Сменить пароль', pw_old: 'Текущий пароль', pw_new: 'Новый пароль', pw_save: 'Сохранить пароль', pw_done: 'Пароль изменён', pw_bad_old: 'Неверный текущий пароль'
+});
+Object.assign(window.I18N.tk, {
+  lv_stats: 'Oýun statistikasy', st_pos: 'Topa eýelik', st_sh: 'Urgy', st_sot: 'Takyk urgy', st_cor: 'Burç urgusy', st_foul: 'Düzgün bozma',
+  st_yc: 'Sary kartoçka', st_rc: 'Gyzyl kartoçka', st_off: 'Ofsaýd', st_sav: 'Halas ediş', lv_events: 'Gollar we kartoçkalar',
+  lv_note: 'Oýun başlandy: hasap, minut, gollar, kartoçkalar we statistika her minutda täzelenýär (käbir aşaky ligalarda diňe hasap). Oýun gutaransoň netijäni we çaklamanyň dogrulygyny Gutaran oýunlar sahypasynda görüp bilersiň.',
+  privacy: 'Gizlinlik', pv_upd: 'Soňky täzelenme: 2026-njy ýylyň noýabry.',
+  pv_items: [
+    'Analiz365 mahabat ýa-da yzarlaýjy kukileri ulanmaýar; myhmanlaryň maglumatlary satylmaýar we üçünji taraplara berilmeýär.',
+    'Hasap açsaň ulanyjy adyň, islege bagly telefon belgiň, kuponlaryň, wirtual balansyň we halanýan toparlaryň saklanýar. Olar diňe saňa görünýär.',
+    'Açar sözüň açyk görnüşde saklanmaýar: hasap serwerinde (Supabase) ygtybarly şifrlenýär, demo hasapda bolsa diňe şu enjamda duzlanan hash görnüşinde saklanýar.',
+    'Dil, mukdar, halanýanlar we bildiriş ýaly sazlamalar brauzeriň ýerli ammarynda saklanýar; brauzer maglumatlaryny arassalap olary pozup bilersiň.',
+    'Göni hasaplary we oýun maglumatlaryny brauzeriň gönüden-göni ESPN we TheSportsDB-den alýar; bu haýyşlarda şahsy maglumatyň iberilmeýär.',
+    'Bildirişler diňe şu enjamda brauzeriň rugsady bilen görkezilýär; rugsady brauzer sazlamalaryndan aýyryp bilersiň.',
+    'Saýt 18 ýaşdan kiçilere niýetlenmedik. Wirtual balans hakyky pul däl; saýt bäs kabul etmeýär we töleg maglumatyny soramaýar.'
+  ],
+  pw_change: 'Açar sözi üýtget', pw_old: 'Häzirki açar söz', pw_new: 'Täze açar söz', pw_save: 'Açar sözi sakla', pw_done: 'Açar söz üýtgedildi', pw_bad_old: 'Häzirki açar söz nädogry'
+});

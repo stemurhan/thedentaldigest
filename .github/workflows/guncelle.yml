@@ -2,9 +2,8 @@ name: Bulten guncelle
 
 on:
   schedule:
-    - cron: "0 2 * * *"    # 07:00 Askabat - gunun bulteni ve MollaMyrat kuponu
-    - cron: "0 10 * * *"   # 15:00 Askabat - oran ve sonuc yenileme
-    - cron: "0 18 * * *"   # 23:00 Askabat - aksam sonuclari
+    # 2 saatte bir (kalabalik olmayan dakikada): oranlar, sonuclar ve kuponlar daha taze kalir
+    - cron: "17 */2 * * *"
   workflow_dispatch:
   push:               # betik veya is akisi degisince de calis
     paths:
@@ -35,10 +34,18 @@ jobs:
           path: .cache
           key: bulten-cache-${{ github.run_id }}
           restore-keys: bulten-cache-
+      - name: Site dosyalarini denetle (JavaScript sozdizimi)
+        run: |
+          node --check js/app.js
+          node --check js/i18n.js
+          node --check js/config.js
+          node --check sw.js
       - name: Bulteni guncelle
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
         run: python scripts/update.py
+      - name: Uretilen veriyi denetle (bozuk veri yayinlanmaz)
+        run: python scripts/check.py
       - name: Degisiklikleri yayinla
         run: |
           git config user.name "analiz365-bot"
