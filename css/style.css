@@ -934,3 +934,7 @@ button.morebtn{cursor:pointer;width:100%}
 /* ---------- v20: kupon sayfasi iki alt sekme (devam eden / sonuclanan) ---------- */
 .akper .chip .num{margin-left:6px;opacity:.75;font-weight:700}
 .akph{margin:16px 2px 8px;font-size:14px;color:var(--mut)}
+
+/* ---------- v21: karne aciklamasi ---------- */
+.kpi b .kof{display:inline;font-size:12px;color:var(--mut);font-weight:600;text-transform:none;letter-spacing:0}
+.facn{margin:10px 2px 0}

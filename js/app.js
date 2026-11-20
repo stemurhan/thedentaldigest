@@ -120,8 +120,9 @@
   function logo(id, cls) {
     const tm = team(id), ini = esc((tm.s || tm.n).replace(/[^A-Za-zÀ-ÿА-я]/g, '').slice(0, 2).toUpperCase());
     const c = 'logo' + (cls ? ' ' + cls : '');
+    const src = tm.l && /thesportsdb\.com\/images\/.*\.png$/.test(tm.l) ? tm.l + '/tiny' : tm.l;
     return tm.l
-      ? `<img class="${c}" src="${esc(tm.l)}" alt="" loading="${cls === 'sm' ? 'eager' : 'lazy'}" decoding="async" data-ini="${ini}">`
+      ? `<img class="${c}" src="${esc(src)}" alt="" loading="${cls === 'sm' ? 'eager' : 'lazy'}" decoding="async" data-ini="${ini}">`
       : `<span class="${c} ph">${ini}</span>`;
   }
   const pair = (h, a, hn, an) => `<span class="pair" title="${esc(hn)} – ${esc(an)}"><span class="ts">${logo(h, 'sm')}<span class="nm">${esc(hn)}</span></span><span class="sep">–</span><span class="ts">${logo(a, 'sm')}<span class="nm">${esc(an)}</span></span></span>`;
@@ -1732,11 +1733,12 @@
       ${bb ? '' : lgChips(new Set(D.results.map(r => r.lg)), true)}`;
     if (!list.length) return html + `<div class="card empty">${t('nomatch')}</div>`;
     html += `<div class="card sec facc" style="margin-top:0"><h2>${t('fin_all')}${D.since ? ` <small class="mut">${fmt(t('fin_since'), { d: dayShort(D.since.length > 10 ? dayKey(D.since) : D.since) })}</small>` : ''}</h2><div class="kpis">
-      <div class="kpi"><small>${t('c_played')}</small><b>${nSince}</b></div>
+      <div class="kpi"><small>${t('f_predn')}</small><b>${wp.length}<small class="kof"> / ${nSince}</small></b></div>
       <div class="kpi"><small>${t('f_tip')}</small><b style="color:var(--pri)">${wp.length ? tipOk + '/' + wp.length : '–'}</b></div>
       <div class="kpi"><small>${t(bb ? 'f_win' : 'f_sc')}</small><b style="color:var(--gold)">${wp.length ? scOk + '/' + wp.length : '–'}</b></div>
       ${!bb && A.n3 ? `<div class="kpi"><small>${t('f_sc3')}</small><b style="color:var(--gold)">${A.sc3}/${A.n3}</b></div>` : ''}
-      <div class="kpi"><small>${t('fin_30')}</small><b>${A.n ? pct(A.tip / A.n) + '%' : '–'}</b></div></div></div>`;
+      <div class="kpi"><small>${t('fin_30')}</small><b>${A.n ? pct(A.tip / A.n) + '%' : '–'}</b></div></div>
+      <p class="note facn">${fmt(t(wp.length < 30 ? 'fin_small' : 'fin_only'), { n: wp.length, m: nSince })}</p></div>`;
     // tum gunler alt alta (en yeni ustte); uzun liste parca parca acilir
     const lim = !bb && flt.lg !== 'all' ? days.length : flt.rlim;
     days.slice(0, lim).forEach(dk => {
@@ -2084,7 +2086,8 @@
   const tfetch = (u, ms) => { const c = new AbortController(), tm = setTimeout(() => c.abort(), ms || 9000);
     return fetch(u, { signal: c.signal, cache: 'no-store' }).finally(() => clearTimeout(tm)); };
   const espnAt = {}, srvAt = {}, srvBad = {};
-  const SRV_LIVE = [((window.AHAL_CFG || {}).supabaseUrl || '').replace(/\/$/, '') + '/storage/v1/object/public/live/live.json', 'data/live.json'].filter(u => !/^\/storage/.test(u));
+  const SB_URL = ((window.AHAL_CFG || {}).supabaseUrl || '').replace(/\/$/, '');
+  const SRV_LIVE = SB_URL ? [SB_URL + '/storage/v1/object/public/live/live.json'] : ['data/live.json'];
   // sunucu yedegi (data/live.json): ESPN'e ulasilamayan aglarda skor buradan gelir; dakika, dosyanin yasina gore ilerletilir
   function applySrv(j) {
     if (!j || !j.ev || !j.t) return;

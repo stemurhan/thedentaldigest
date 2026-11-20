@@ -115,7 +115,7 @@ LEAGUES = [
 LGMAP = {l["id"]: l for l in LEAGUES}
 
 HISTORY_START = "2025-08-01"   # aralarindaki maclar icin gecmis
-DAYS_AHEAD = 14                # bultende kac gun ilerisi
+DAYS_AHEAD = 7                 # bultende kac gun ilerisi (daha uzak maclarda bahis siteleri henuz oran acmiyor)
 DETAIL_DAYS = 8                # kadro + oyuncu istatistigi kac gun ilerisi icin
 RESULT_DAYS = 14               # sonuclar sayfasi / kupon sonuclandirma
 STATS_FROM = "2026-11-20"   # isabet istatistikleri ve analizci karnesi 20.11.2026 (Askabat gece yarisi) itibariyla sayilir (yeni liglerle sifirlandi)
