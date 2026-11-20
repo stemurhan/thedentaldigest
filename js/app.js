@@ -385,6 +385,12 @@
     const res = pkRes(pk), tag = MATCH[pk.id] ? 'a' : 'div';
     return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${pk.hr ? ' · ' + t(/^(IY|HF)/.test(pk.k) ? 'xk_iy_s' : 'xk_y2_s') + ' <b class="res">' + pk.hr[0] + '-' + pk.hr[1] + '</b>' : ''}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}" data-lk="${esc(pk.k)}"></span>`}${pk.os === 'model' && /^(IY|2Y|HF|S\d)/.test(pk.k) ? ' · <span class="srcb m">Analiz365</span>' : ''}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num${oSrc(MATCH[pk.id], pk.k) === 'model' ? ' mdl' : ''}" title="${esc(srcTip(MATCH[pk.id], pk.k))}">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
   }
+  // bir kuponun durumu (secim yoksa null): won / lost / pending
+  function akSt(c, mk, own) {
+    const pk = kPicks(c, mk, own);
+    if (!pk.length) return null;
+    return mk === 'sys' ? sysInfo({ k: sysK(c, own), picks: pk }).st : cpnState(pk).st;
+  }
   function akCard(c, mk, own, ttl) {
     const pk = kPicks(c, mk, own), joint = own === 'all', r = joint ? null : (D.agacc || {})[own];
     const who = `${agAv(own)}<div class="akw"><b>${joint ? ttl || t('ac_joint') : t('ag_' + own)}</b><small>${t(joint ? 'ak_joint_s' : 'ag_' + own + '_r')}${r && r[0] ? ` · <span class="num">${pct(r[1] / r[0])}%</span>` : ''}</small></div>`;
@@ -398,19 +404,33 @@
       ${pk.map(x => akRow(x, joint)).join('')}<div class="akf">${foot}</div>${!sy && pk.some(pkLive) ? `<button class="btn akb" data-act="tipadd" ${at}>${t('tipc_add')}</button>` : ''}</div>`;
   }
   function viewMolla() {
-    const per = MOLLA.coupons.filter(x => x.ac), c = per.find(x => x.date === flt.mp) || per[0] || MOLLA.coupons[0];
-    if (!c) return `<div class="pagehead"><h1>${t('tipc_title')}</h1></div><div class="card empty">${t('m_none')}</div>`;
+    const per = MOLLA.coupons.filter(x => x.ac);
+    if (!per.length) return `<div class="pagehead"><h1>${t('tipc_title')}</h1></div><div class="card empty">${t('m_none')}</div>`;
     const mk = ['main', 'hi', 'sys', 'big'].includes(flt.mk) ? flt.mk : 'main', owners = ['all'].concat(AGENTS.map(x => x[0]));
     const TAB = [['main', '★', 'ak_h_main'], ['hi', '🔥', 'ak_h_hi'], ['sys', '🎯', 'ak_h_sys'], ['big', '💎', 'ak_h_big']];
-    const xs = mk === 'main' ? XK : [];                    // Banko sekmesinde skor ve IY/MS kuponu her zaman gorunur
-    return `<div class="pagehead"><h1>${t('tipc_title')}</h1><small class="num">${cRange(c)}</small></div>
+    // her donemin kartlari: analizci kuponlari + (Banko sekmesinde) skor ve IY/MS kuponlari
+    const groups = per.map(c => ({ c, cards: owners.map(o => [mk, o]).concat(mk === 'main' ? XK.map(x => [x, 'all']) : [])
+      .map(([k, o]) => ({ k, o, st: akSt(c, k, o) })).filter(x => x.st) }));
+    const nx = mk === 'main' && nextC();
+    const nOpen = groups.reduce((a, g) => a + g.cards.filter(x => x.st === 'pending').length, 0) + (nx ? 1 : 0);
+    const nDone = groups.reduce((a, g) => a + g.cards.filter(x => x.st !== 'pending').length, 0);
+    const ms = flt.ms === 'done' || (flt.ms !== 'open' && !nOpen && nDone) ? 'done' : 'open';
+    const card = (c, x) => akCard(c, x.k, x.o, x.k !== mk ? t('m_k_' + x.k) : undefined);
+    let body = '';
+    if (ms === 'open' && nx) body += `<div class="akg aknx">${akCard(nextC(), 'main', 'all', '🔄 ' + t('m_next_title'))}</div><p class="note akxn">${t('m_next_note')}</p>`;
+    const secs = [];                       // ayni tarih araligindaki yedek kuponlar (2026-11-18b ...) tek baslik altinda
+    groups.forEach(g => {
+      const cs = g.cards.filter(x => (x.st === 'pending') === (ms === 'open'));
+      if (!cs.length) return;
+      const lb = cRange(g.c), last = secs[secs.length - 1], h = cs.map(x => card(g.c, x)).join('');
+      if (last && last.lb === lb) last.h += h; else secs.push({ lb, h });
+    });
+    body += secs.map(x => `<h2 class="dayhead akph">${x.lb}</h2><div class="akg">${x.h}</div>`).join('');
+    if (!body) body = `<div class="card empty">${t(ms === 'open' ? 'ak_open_none' : 'ak_done_none')}</div>`;
+    return `<div class="pagehead"><h1>${t('tipc_title')}</h1></div>
       <div class="aktabs" role="tablist">${TAB.map(([k, ic, h]) => `<button role="tab" aria-selected="${mk === k}" class="${mk === k ? 'on' : ''}" data-mk="${k}"><i>${ic}</i><b>${t(h)}</b></button>`).join('')}</div>
-      ${per.length > 1 ? `<div class="chips akper">${per.map((x, i) => { const dup = per.slice(0, i).some(y => cRange(y) === cRange(x));
-        return `<button class="chip ${x === c ? 'on' : ''}" data-mp="${x.date}">${cRange(x)}${dup ? ` · ${t('ak_prev')}` : ''}</button>`; }).join('')}</div>` : ''}
-      ${mk === 'main' && c === MOLLA.coupons[0] && nextC() ? `<div class="akg aknx">${akCard(nextC(), 'main', 'all', '🔄 ' + t('m_next_title'))}</div><p class="note akxn">${t('m_next_note')}</p>` : ''}
-      <div class="akg">${owners.map(o => akCard(c, mk, o)).join('')}</div>
-      ${xs.length ? `<h2 class="dayhead akxh">🧩 ${t('xk_title')}</h2><p class="note akxn">${t('xk_note')}</p>
-      <div class="akg">${xs.map(x => akCard(c, x, 'all', t('m_k_' + x))).join('')}</div>` : ''}`;
+      <div class="chips akper">${[['open', nOpen], ['done', nDone]].map(([k, n]) => `<button class="chip ${ms === k ? 'on' : ''}" data-ms="${k}">${t('ak_ms_' + k)} <span class="num">${n}</span></button>`).join('')}</div>
+      ${body}`;
   }
 
   // ---------- favori karti, bildirimler ----------
@@ -2252,7 +2272,7 @@
       b.setAttribute('aria-expanded', String(!open)); b.classList.toggle('on', !open); return;
     }
     if (d.asort) { flt.asort = d.asort; flt.alim = 24; return render(); }
-    if (d.mp) { flt.mp = d.mp; const y = scrollY; render(); scrollTo(0, y); return; }
+    if (d.ms) { flt.ms = d.ms; const y = scrollY; render(); scrollTo(0, y); return; }
     if (d.mk || d.ma) { if (d.mk) flt.mk = d.mk; if (d.ma) flt.ma = d.ma === '*' ? null : d.ma; if (d.mgo && !/^#\/mollamyrat/.test(location.hash)) { location.hash = '#/mollamyrat'; return; } const y = scrollY; render(); scrollTo(0, y); return; }
     if (d.act === 'notif') return toggleNotif();
     if (d.act === 'share-slip') return shareSlip();

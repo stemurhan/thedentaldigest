@@ -942,3 +942,7 @@ Object.assign(window.I18N.tk, {
   ],
   pw_change: 'Açar sözi üýtget', pw_old: 'Häzirki açar söz', pw_new: 'Täze açar söz', pw_save: 'Açar sözi sakla', pw_done: 'Açar söz üýtgedildi', pw_bad_old: 'Häzirki açar söz nädogry'
 });
+
+Object.assign(window.I18N.tr, { ak_ms_open: 'Devam eden kuponlar', ak_ms_done: 'Sonuçlanan kuponlar', ak_open_none: 'Şu anda bekleyen ya da oynanan kupon yok. Yeni kuponlar uygun maçlar bültene girince yayınlanır.', ak_done_none: 'Henüz sonuçlanan kupon yok.' });
+Object.assign(window.I18N.ru, { ak_ms_open: 'Текущие купоны', ak_ms_done: 'Завершённые купоны', ak_open_none: 'Сейчас нет ожидающих или идущих купонов. Новые купоны появятся, когда подходящие матчи попадут в линию.', ak_done_none: 'Завершённых купонов пока нет.' });
+Object.assign(window.I18N.tk, { ak_ms_open: 'Dowam edýän kuponlar', ak_ms_done: 'Netijelenen kuponlar', ak_open_none: 'Häzir garaşylýan ýa-da oýnalýan kupon ýok. Täze kuponlar laýyk oýunlar býulletene girende çap edilýär.', ak_done_none: 'Entek netijelenen kupon ýok.' });

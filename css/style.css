@@ -930,3 +930,7 @@ button.morebtn{cursor:pointer;width:100%}
 .srcb,.axpk small{font-size:10px}
 .acc small,.ant .sc small{font-size:10.5px}
 .ob small,.kpi small,.mtime small,.xgr,.bbp small,.tipc-r .to small,.agk1>span small,.agtile .nm,.anl3,.ans small,.axverd small,.axr1 small{font-size:10.5px}
+
+/* ---------- v20: kupon sayfasi iki alt sekme (devam eden / sonuclanan) ---------- */
+.akper .chip .num{margin-left:6px;opacity:.75;font-weight:700}
+.akph{margin:16px 2px 8px;font-size:14px;color:var(--mut)}
