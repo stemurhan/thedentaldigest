@@ -131,6 +131,20 @@
   const shareBtn = (act, extra) => `<button type="button" class="shr" data-act="${act}" ${extra || ''} title="${t('share')}" aria-label="${t('share')}">${SHARE_ICON}</button>`;
   const badge = lg => `<span class="cc">${(LG[lg] || {}).b || GBADGE[(LG[lg] || {}).g] || 'NBA'}</span>`;
   const srcName = s => (s === 'model' ? 'Analiz365' : s);
+  // bir secenegin oraninin kaynagi: site orani (bet365 / Nesine / DraftKings) ya da Analiz365 modeli
+  const OSRC_G = { '1': 'ms', X: 'ms', '2': 'ms', '1X': 'dc', '12': 'dc', X2: 'dc', 'O1.5': 'ou15', 'U1.5': 'ou15',
+    'O2.5': 'ou25', 'U2.5': 'ou25', 'O3.5': 'ou35', 'U3.5': 'ou35', KGV: 'kg', KGY: 'kg' };
+  function oSrc(m, k) {
+    if (!m) return null;
+    if (m.sport === 'bb') return m.src || 'model';
+    if (/^HF/.test(k)) return ((m.xo || {}).s || [])[1] || 'model';
+    if (/^(IY|S\d)/.test(k)) return /^IY/.test(k) ? ((m.xo || {}).s || [])[0] || 'model' : 'model';
+    const g = OSRC_G[k];
+    if (!g) return 'model';
+    const ss = m.ss || {};
+    return g === 'ms' ? (ss.ms || m.src || 'model') : (ss[g] || 'model');
+  }
+  const srcTip = (m, k) => { const s = oSrc(m, k); return s ? `${t('src_l')}: ${srcName(s)}` : ''; };
   const srcBadge = s => `<span class="srcb ${s === 'model' ? 'm' : ''}">${esc(srcName(s))}</span>`;
 
   const XK = ['hf', 'sk'];                       // devre ve skor kuponlari (ajanlarin ortak karari)
@@ -202,8 +216,8 @@
   function ob(m, k, label) {
     const o = m.o[k];
     if (!o) return '<span class="ob off"><b>–</b></span>';
-    const on = slip.some(s => s.m === m.id && s.k === k);
-    return `<button type="button" class="ob${on ? ' on' : ''}" data-m="${m.id}" data-k="${k}" aria-pressed="${on}"><small>${esc(label || mkShort(k, m))}</small><b>${o.toFixed(2)}</b></button>`;
+    const on = slip.some(s => s.m === m.id && s.k === k), mdl = oSrc(m, k) === 'model';
+    return `<button type="button" class="ob${on ? ' on' : ''}${mdl ? ' mdl' : ''}" data-m="${m.id}" data-k="${k}" aria-pressed="${on}" title="${esc(srcTip(m, k))}"><small>${esc(label || mkShort(k, m))}</small><b>${o.toFixed(2)}</b></button>`;
   }
   const RL = () => ({ W: t('th_w'), D: t('th_d'), L: t('th_l') });
   const formDots = arr => { const L = RL(); return arr.map(r => `<span class="f ${r}">${esc(L[r].slice(0, 1))}</span>`).join(''); };
@@ -369,7 +383,7 @@
   const agAv = (a, bb, ic) => (bb ? `<i class="av emo">${ic}</i>` : a === 'all' ? '<i class="av a-all">★</i>' : `<i class="av a-${a}">${esc(t('ag_' + a).slice(0, 1))}</i>`);
   function akRow(pk, joint) {
     const res = pkRes(pk), tag = MATCH[pk.id] ? 'a' : 'div';
-    return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${pk.hr ? ' · ' + t(/^(IY|HF)/.test(pk.k) ? 'xk_iy_s' : 'xk_y2_s') + ' <b class="res">' + pk.hr[0] + '-' + pk.hr[1] + '</b>' : ''}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}" data-lk="${esc(pk.k)}"></span>`}${pk.os === 'model' && /^(IY|2Y|HF|S\d)/.test(pk.k) ? ' · <span class="srcb m">Analiz365</span>' : ''}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
+    return `<${tag} class="akr"${MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : ''}><span class="akt">${pair(pk.h, pk.a, pkName(pk, 'h'), pkName(pk, 'a'))}<small><b>${esc(mkLabel(pk.k))}</b> · ${shortDate(pk.d)} ${timeOf(pk.d)}${pk.hr ? ' · ' + t(/^(IY|HF)/.test(pk.k) ? 'xk_iy_s' : 'xk_y2_s') + ' <b class="res">' + pk.hr[0] + '-' + pk.hr[1] + '</b>' : ''}${res ? ' · <b class="res">' + res[0] + '-' + res[1] + '</b>' : `<span data-lv="${pk.id}" data-lk="${esc(pk.k)}"></span>`}${pk.os === 'model' && /^(IY|2Y|HF|S\d)/.test(pk.k) ? ' · <span class="srcb m">Analiz365</span>' : ''}</small></span>${joint && pk.v != null ? `<span class="akv num" title="${esc(fmt(t('ag_votes'), { v: pk.v }))}">${pk.v}/5</span>` : ''}<span class="ako num${oSrc(MATCH[pk.id], pk.k) === 'model' ? ' mdl' : ''}" title="${esc(srcTip(MATCH[pk.id], pk.k))}">${pk.o.toFixed(2)}</span>${pkIcon(pk)}</${tag}>`;
   }
   function akCard(c, mk, own, ttl) {
     const pk = kPicks(c, mk, own), joint = own === 'all', r = joint ? null : (D.agacc || {})[own];
@@ -798,6 +812,8 @@
     });
     const rest = dks.slice(lim).reduce((n, dk) => n + list.filter(m => dayKey(m.d) === dk).length, 0);
     if (rest) html += `<button class="btn ghost more" data-act="bmore">${fmt(t('show_more'), { n: rest })}</button>`;
+    if (list.some(m => ['1', 'O2.5', 'KGV'].some(k => m.o[k] && oSrc(m, k) === 'model')))
+      html = `<p class="srcleg"><span class="ob mdl demo"><b>1.85</b></span>${t('src_leg')}</p>` + html;
     return html;
   }
   function row(m, wd) {
@@ -879,7 +895,7 @@
       <div>${pbar(p)}<div class="anl3"><span>1</span>${bb ? '' : '<span>X</span>'}<span>2</span></div></div>
       <div class="anst">${stats}</div>
       ${agTiles(m)}
-      ${c && (c.srv || c.n >= 2) ? `<div class="anf"><span class="pill">${t('ag_cons')}</span><b>${esc(mkLabel(c.k, m))}</b><span class="num od">${m.o[c.k].toFixed(2)}</span><span class="num vt">${c.n}/5</span></div>` : ''}
+      ${c && (c.srv || c.n >= 2) ? `<div class="anf"><span class="pill">${t('ag_cons')}</span><b>${esc(mkLabel(c.k, m))}</b><span class="num od${oSrc(m, c.k) === 'model' ? ' mdl' : ''}" title="${esc(srcTip(m, c.k))}">${m.o[c.k].toFixed(2)}</span><span class="num vt">${c.n}/5</span></div>` : ''}
     </a>`;
   }
   function viewAnalysis() {

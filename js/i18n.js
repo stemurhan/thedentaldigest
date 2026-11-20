@@ -889,3 +889,7 @@ Object.assign(window.I18N.tk, { m_next_title: 'Täze ygtybarly kupon', m_next_su
 Object.assign(window.I18N.tr, { lv_events: 'Goller ve kırmızı kartlar', n_red: 'Kırmızı kart' });
 Object.assign(window.I18N.ru, { lv_events: 'Голы и красные карточки', n_red: 'Красная карточка' });
 Object.assign(window.I18N.tk, { lv_events: 'Gollar we gyzyl kartoçkalar', n_red: 'Gyzyl kartoçka' });
+
+Object.assign(window.I18N.tr, { src_l: 'Oran kaynağı', src_leg: 'Kesik çerçeveli ve ~ işaretli oranlar Analiz365 modelinin hesapladığı orandır: bu pazarda bahis sitelerinde henüz oran açılmamış. Diğer oranlar bet365, Nesine veya DraftKings’ten gelir; oranın üstüne gelince kaynağı görünür.' });
+Object.assign(window.I18N.ru, { src_l: 'Источник коэффициента', src_leg: 'Коэффициенты в пунктирной рамке и со знаком ~ рассчитаны моделью Analiz365: букмекеры ещё не открыли этот рынок. Остальные — от bet365, Nesine или DraftKings; источник виден при наведении.' });
+Object.assign(window.I18N.tk, { src_l: 'Koeffisiýent çeşmesi', src_leg: 'Kesik çarçuwaly we ~ belgili koeffisiýentler Analiz365 modeli tarapyndan hasaplanýar: bu bazarda saýtlarda entek koeffisiýent açylmady. Beýlekiler bet365, Nesine ýa-da DraftKings-den gelýär; üstüne geleniňde çeşmesi görünýär.' });
