@@ -83,7 +83,8 @@ window.I18N = {
     ag_fn_r: 'Gol beklentisi modeli', ag_st_r: 'Dixon-Coles modeli', ag_mk_r: 'Piyasa', ag_fm_r: 'Form', ag_vr_r: 'Değer ve risk',
     ak_none: 'Bu dönem kupon yok', ak_joint_s: 'Beş analizcinin ortak kararı', ms_s: 'MS', kg_s: 'KG',
     agb_pw_s: 'Güç', agb_mk_s: 'Piyasa', agb_fm_s: 'Form', agb_rs_s: 'Dinlenme', agb_in_s: 'Kadro',
-    ak_prev: 'önceki', ak_h_main: 'Banko Kuponlar', ak_h_hi: 'Sürpriz Kuponlar', ak_h_sys: 'Sistem Kuponları',
+    ak_prev: 'önceki', ak_h_big: 'Yüksek Oran', m_t_big: 'Yüksek Oran', m_k_big: 'Yüksek oran kuponu (35+)', g_wd: 'Dünya Ligleri',
+    ak_h_main: 'Banko Kuponlar', ak_h_hi: 'Sürpriz Kuponlar', ak_h_sys: 'Sistem Kuponları',
     iy_res: 'İlk Yarı Sonucu', iy_ms: 'İlk Yarı / Maç Sonucu', x_info: 'İlk yarı pazarları analiz amaçlı gösterilir; kupona eklenemez.', mx_more: 'Maç analizi',
     bt_s: 'test', bt_d: 'Geriye dönük test: son 45 günün lig maçları, her biri yalnızca kendisinden önceki veriyle tahmin edildi. Yüzde, maç sonucunu (1-X-2) doğru bilme oranıdır. Maçlar sonuçlandıkça yerini canlı karne alır.',
     ag_title: 'Analiz ajanları', ag_sub: '{n} maç tarandı · 5 bağımsız ajan', ag_cons: 'Analiz365 tahmini', ag_match: 'Maç / seçim', ag_ok: 'Onay',
@@ -258,7 +259,8 @@ window.I18N = {
     ag_fn_r: 'Модель ожидаемых голов', ag_st_r: 'Модель Диксона-Коулза', ag_mk_r: 'Рынок', ag_fm_r: 'Форма', ag_vr_r: 'Ценность и риск',
     ak_none: 'В этом периоде купона нет', ak_joint_s: 'Общее решение пяти аналитиков', ms_s: 'Исход', kg_s: 'ОЗ',
     agb_pw_s: 'Сила', agb_mk_s: 'Рынок', agb_fm_s: 'Форма', agb_rs_s: 'Отдых', agb_in_s: 'Состав',
-    ak_prev: 'предыдущий', ak_h_main: 'Надёжные купоны', ak_h_hi: 'Купоны-сюрпризы', ak_h_sys: 'Системные купоны',
+    ak_prev: 'предыдущий', ak_h_big: 'Высокий кф.', m_t_big: 'Высокий кф.', m_k_big: 'Купон с высоким кф. (35+)', g_wd: 'Мировые лиги',
+    ak_h_main: 'Надёжные купоны', ak_h_hi: 'Купоны-сюрпризы', ak_h_sys: 'Системные купоны',
     iy_res: 'Исход первого тайма', iy_ms: 'Тайм / матч', x_info: 'Рынки первого тайма показаны для анализа; добавить их в купон нельзя.', mx_more: 'Анализ матча',
     bt_s: 'тест', bt_d: 'Проверка на истории: матчи лиг за последние 45 дней, каждый спрогнозирован только по данным до него. Процент — доля верно угаданных исходов (1-X-2). По мере завершения матчей его заменит текущая статистика.',
     ag_title: 'Аналитические агенты', ag_sub: 'просмотрено матчей: {n} · 5 независимых агентов', ag_cons: 'Прогноз Analiz365', ag_match: 'Матч / выбор', ag_ok: 'Одобрено',
@@ -432,7 +434,8 @@ window.I18N = {
     ag_fn_r: 'Garaşylýan gol modeli', ag_st_r: 'Dikson-Kouls modeli', ag_mk_r: 'Bazar', ag_fm_r: 'Forma', ag_vr_r: 'Gymmat we töwekgelçilik',
     ak_none: 'Bu döwürde kupon ýok', ak_joint_s: 'Bäş analizçiniň umumy karary', ms_s: 'Netije', kg_s: 'IG',
     agb_pw_s: 'Güýç', agb_mk_s: 'Bazar', agb_fm_s: 'Forma', agb_rs_s: 'Dynç', agb_in_s: 'Düzüm',
-    ak_prev: 'öňki', ak_h_main: 'Ynamly kuponlar', ak_h_hi: 'Garaşylmadyk kuponlar', ak_h_sys: 'Ulgam kuponlary',
+    ak_prev: 'öňki', ak_h_big: 'Ýokary koef.', m_t_big: 'Ýokary koef.', m_k_big: 'Ýokary koeffisiýentli kupon (35+)', g_wd: 'Dünýä ligalary',
+    ak_h_main: 'Ynamly kuponlar', ak_h_hi: 'Garaşylmadyk kuponlar', ak_h_sys: 'Ulgam kuponlary',
     iy_res: 'Birinji ýarymyň netijesi', iy_ms: 'Ýarym / oýun netijesi', x_info: 'Birinji ýarym bazarlary seljeriş üçin görkezilýär; kupona goşup bolmaýar.', mx_more: 'Oýnuň seljermesi',
     bt_s: 'synag', bt_d: 'Geçmiş boýunça synag: soňky 45 günüň liga oýunlary, her biri diňe özünden öňki maglumat bilen çaklanyldy. Göterim — oýnuň netijesini (1-X-2) dogry bilmek derejesi. Oýunlar gutardygyça ornuny häzirki netijeler alar.',
     ag_title: 'Seljeriş agentleri', ag_sub: '{n} oýun barlandy · 5 garaşsyz agent', ag_cons: 'Analiz365 çaklamasy', ag_match: 'Oýun / saýlaw', ag_ok: 'Tassyk',
@@ -882,3 +885,7 @@ Object.assign(window.I18N.tk, { lv_nodata: 'Göni maglumat ýok' });
 Object.assign(window.I18N.tr, { m_next_title: 'Yeni Banko Kupon', m_next_sub: 'önceki kupon kaybetti', m_next_note: 'Önceki banko kuponda tutmayan maç oldu; ajanların ortak kararıyla hemen yeni kupon hazırlandı. Bir sonraki güncellemede kupon geçmişine işlenir.' });
 Object.assign(window.I18N.ru, { m_next_title: 'Новый надёжный купон', m_next_sub: 'прошлый купон проиграл', m_next_note: 'В прошлом купоне был проигравший матч; общим решением агентов сразу подготовлен новый купон. При следующем обновлении он попадёт в историю.' });
 Object.assign(window.I18N.tk, { m_next_title: 'Täze ygtybarly kupon', m_next_sub: 'öňki kupon utuldy', m_next_note: 'Öňki kuponda utulan oýun boldy; agentleriň umumy karary bilen derrew täze kupon taýýarlandy. Indiki täzelenmede kupon taryhyna ýazylýar.' });
+
+Object.assign(window.I18N.tr, { lv_events: 'Goller ve kırmızı kartlar', n_red: 'Kırmızı kart' });
+Object.assign(window.I18N.ru, { lv_events: 'Голы и красные карточки', n_red: 'Красная карточка' });
+Object.assign(window.I18N.tk, { lv_events: 'Gollar we gyzyl kartoçkalar', n_red: 'Gyzyl kartoçka' });

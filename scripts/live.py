@@ -83,6 +83,10 @@ def build():
                              "p": ((x.get("athletesInvolved") or [{}])[0] or {}).get("displayName") or "",
                              "og": bool(x.get("ownGoal")), "pk": bool(x.get("penaltyKick"))}
                             for x in c.get("details") or [] if x.get("scoringPlay") and not x.get("shootout")]
+                rec["r"] = [{"m": (x.get("clock") or {}).get("displayValue") or "",
+                             "s": "h" if str((x.get("team") or {}).get("id")) == str(h["team"]["id"]) else "a",
+                             "p": ((x.get("athletesInvolved") or [{}])[0] or {}).get("displayName") or ""}
+                            for x in c.get("details") or [] if x.get("redCard")]
             ev[eid] = rec
     return ev
 

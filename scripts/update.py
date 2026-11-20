@@ -46,9 +46,9 @@ APF_LEAGUES = {"tur.1": 203, "eng.1": 39, "esp.1": 140, "ger.1": 78, "ita.1": 13
 
 
 # ---- Ligler ----------------------------------------------------------------
-def L(id, tr, ru, tk, g, cup=False, nat=False, tier=1, tsdb=None, table=True):
+def L(id, tr, ru, tk, g, cup=False, nat=False, tier=1, tsdb=None, table=True, b=None):
     return {"id": id, "n": {"tr": tr, "ru": ru, "tk": tk}, "g": g, "cup": cup, "nat": nat, "tier": tier,
-            "tsdb": tsdb, "table": table}
+            "tsdb": tsdb, "table": table, "b": b}
 
 
 LEAGUES = [
@@ -83,8 +83,27 @@ LEAGUES = [
     L("por.1", "Portekiz Ligi (Primeira Liga)", "Чемпионат Португалии (Примейра)", "Portugaliýa ligasy (Primeýra)", "pt"),
     # Portekiz 2. ligi: TheSportsDB (ESPN akisinda yok)
     L("por.2", "Portekiz 2. Lig (Liga Portugal 2)", "Вторая лига Португалии", "Portugaliýa 2-nji ligasy", "pt", tier=2, tsdb=4662),
-    L("bel.1", "Belçika Pro Lig", "Про-лига Бельгии", "Belgiýa Pro-ligasy", "ot"),
-    L("sco.1", "İskoçya Premiership", "Премьершип Шотландии", "Şotlandiýa Premýerşipi", "ot"),
+    L("bel.1", "Belçika Pro Lig", "Про-лига Бельгии", "Belgiýa Pro-ligasy", "ot", b="BEL"),
+    L("sco.1", "İskoçya Premiership", "Премьершип Шотландии", "Şotlandiýa Premýerşipi", "ot", b="SCO"),
+    # Diger Avrupa ve dunya ligleri (ESPN; oranlar cogunlukla Nesine'den). Takvim yili ile oynanan liglerde
+    # (Brezilya, Arjantin, MLS, Japonya, Sili, Iskandinavya) sezon Temmuz'da kesildigi icin puan tablosu gosterilmez.
+    L("eng.5", "İngiltere Ulusal Lig (5. Lig)", "Национальная лига Англии (5-я лига)", "Angliýa Milli ligasy (5-nji liga)", "en", tier=2),
+    L("sco.2", "İskoçya Championship", "Чемпионшип Шотландии", "Şotlandiýa Çempionşipi", "ot", tier=2, b="SCO"),
+    L("gre.1", "Yunanistan Süper Lig", "Суперлига Греции", "Gresiýa Superligasy", "ot", b="GRE"),
+    L("aut.1", "Avusturya Bundesliga", "Бундеслига Австрии", "Awstriýa Bundesligasy", "ot", b="AUT"),
+    L("sui.1", "İsviçre Süper Lig", "Суперлига Швейцарии", "Şweýsariýa Superligasy", "ot", b="SUI"),
+    L("den.1", "Danimarka Süper Lig", "Суперлига Дании", "Daniýa Superligasy", "ot", b="DEN"),
+    L("swe.1", "İsveç Allsvenskan", "Аллсвенскан (Швеция)", "Şwesiýa Allswenskan", "ot", table=False, b="SWE"),
+    L("nor.1", "Norveç Eliteserien", "Элитсерия (Норвегия)", "Norwegiýa Eliteserien", "ot", table=False, b="NOR"),
+    L("ksa.1", "Suudi Arabistan Pro Lig", "Про-лига Саудовской Аравии", "Saud Arabystanynyň Pro-ligasy", "wd", b="KSA"),
+    L("bra.1", "Brezilya Serie A", "Серия A Бразилии", "Braziliýa A Seriýasy", "wd", table=False, b="BRA"),
+    L("bra.2", "Brezilya Serie B", "Серия B Бразилии", "Braziliýa B Seriýasy", "wd", tier=2, table=False, b="BRA"),
+    L("arg.1", "Arjantin Ligi", "Чемпионат Аргентины", "Argentina ligasy", "wd", table=False, b="ARG"),
+    L("usa.1", "ABD MLS", "MLS (США)", "ABŞ MLS", "wd", table=False, b="USA"),
+    L("mex.1", "Meksika Liga MX", "Лига MX (Мексика)", "Meksika Liga MX", "wd", b="MEX"),
+    L("jpn.1", "Japonya J1 Ligi", "Джей-лига 1 (Япония)", "Ýaponiýa J1 ligasy", "wd", table=False, b="JPN"),
+    L("chi.1", "Şili Primera", "Примера Чили", "Çili Primera ligasy", "wd", table=False, b="CHI"),
+    L("aus.1", "Avustralya A-League", "A-League (Австралия)", "Awstraliýa A-League", "wd", b="AUS"),
 ]
 LGMAP = {l["id"]: l for l in LEAGUES}
 
@@ -747,7 +766,10 @@ WD_UA = "bulletin-updater/1.0 (python-urllib)"
 LG_COUNTRY = {"tur.1": "Q43", "tur.2": "Q43", "tur.3": "Q43", "rus.1": "Q159", "rus.2": "Q159",
               "eng.1": "Q145", "eng.2": "Q145", "eng.3": "Q145", "eng.4": "Q145", "sco.1": "Q145",
               "esp.1": "Q29", "esp.2": "Q29", "ger.1": "Q183", "ger.2": "Q183", "ita.1": "Q38", "ita.2": "Q38",
-              "fra.1": "Q142", "fra.2": "Q142", "ned.1": "Q55", "ned.2": "Q55", "por.1": "Q45", "por.2": "Q45", "bel.1": "Q31"}
+              "fra.1": "Q142", "fra.2": "Q142", "ned.1": "Q55", "ned.2": "Q55", "por.1": "Q45", "por.2": "Q45", "bel.1": "Q31",
+              "eng.5": "Q145", "sco.2": "Q145", "gre.1": "Q41", "aut.1": "Q40", "sui.1": "Q39", "den.1": "Q35",
+              "swe.1": "Q34", "nor.1": "Q20", "ksa.1": "Q851", "bra.1": "Q155", "bra.2": "Q155", "arg.1": "Q414",
+              "usa.1": "Q30", "mex.1": "Q96", "jpn.1": "Q17", "chi.1": "Q298", "aus.1": "Q408"}
 # Avrupa kupalarina katilan diger ulkeler
 EURO_Q = ["Q41", "Q40", "Q39", "Q213", "Q36", "Q212", "Q35", "Q34", "Q20", "Q224", "Q403", "Q218", "Q219",
           "Q28", "Q229", "Q801", "Q227", "Q232", "Q214", "Q215", "Q33", "Q27", "Q225", "Q217", "Q399", "Q230",
@@ -994,7 +1016,8 @@ def localize(teams, nat_ids, team_country):
 MOLLA = os.path.join(ROOT, "data", "molla.json")
 MOLLA_DAYS = 2                 # kupon kac gunu kapsar / kac gunde bir yenilenir
 TIP_KEYS = ["1", "X", "2", "1X", "X2", "O2.5", "U2.5", "KGV", "KGY"]
-MOLLA_HI = 20.0                # yuksek oranli kuponun en dusuk toplam orani
+MOLLA_HI = 20.0                # surpriz kuponun en dusuk toplam orani
+MOLLA_BIG = 35.0               # yuksek oran kuponunun en dusuk toplam orani
 MOLLA_SYS = (3, 5)             # sistem kuponu: 5 macin en az 3'u (3'lu kolonlar)
 
 
@@ -1068,7 +1091,8 @@ def load_pins():
     alive = lambda x: pdate(x["d"]) > later
     if cks:
         c = st_["coupons"][cks[-1]]
-        for x in list(c.get("picks") or []) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", []):
+        for x in list(c.get("picks") or []) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", []) + \
+                (c.get("big") or {}).get("picks", []):
             if alive(x):
                 PINS[x["id"]].append(("k", x["k"]))
         for x in (c.get("sk") or {}).get("picks", []):
@@ -1079,7 +1103,7 @@ def load_pins():
                 PINS[x["id"]].append(("ft", x["k"][4]))
                 PIN_HT[x["id"]] = x["k"][2]
         for a_, own in (c.get("ac") or {}).items():
-            for x in own.get("main", []) + own.get("hi", []) + (own.get("sys") or {}).get("picks", []):
+            for x in own.get("main", []) + own.get("hi", []) + (own.get("sys") or {}).get("picks", []) + own.get("big", []):
                 if alive(x):
                     PINS_AG[(x["id"], a_)].append(x["k"])
     for x in (st_.get("next") or {}).get("picks", []):
@@ -1227,6 +1251,7 @@ AG_TYPES = {
     "main": {"lo": 1.15, "hi": 1.62, "need": lambda o: 0.62, "ev": -0.08},
     "hi": {"lo": 1.80, "hi": 4.50, "need": lambda o: max(0.30, 0.90 / o), "ev": -0.02},
     "sys": {"lo": 1.45, "hi": 2.40, "need": lambda o: 0.50, "ev": -0.05},
+    "big": {"lo": 1.60, "hi": 4.00, "need": lambda o: max(0.30, 0.85 / o), "ev": -0.03},
 }
 
 
@@ -1586,8 +1611,9 @@ def agent_best(m):
     return out
 
 
-def own_coupons(pool, base):
-    """Her analizcinin yalnizca kendi olasiliklariyla kurdugu banko / surpriz / sistem kuponu."""
+def own_coupons(pool, base, types=("main", "hi", "sys", "big"), avoid=None):
+    """Her analizcinin yalnizca kendi olasiliklariyla kurdugu banko / surpriz / sistem / yuksek oran kuponu.
+    avoid: {analizci: kullanilmis mac kimlikleri} (sonradan eklenen kupon ayni maclari tekrar kullanmaz)."""
     mean = lambda xs: sum(xs) / len(xs)
     pvs, scs = {}, {}
     for m in pool:
@@ -1597,8 +1623,8 @@ def own_coupons(pool, base):
         scs[m["id"]]["vr"] = m["p"]["score"]
     res = {}
     for a in AGENTS:
-        used, res[a] = set(), {}
-        for typ in ("main", "hi", "sys"):
+        used, res[a] = set((avoid or {}).get(a, ())), {}
+        for typ in types:
             cfg, c = AG_TYPES[typ], []
             for m in pool:
                 pv = pvs[m["id"]]
@@ -1617,10 +1643,10 @@ def own_coupons(pool, base):
                     if a == "vr":
                         pr = wmean(pv, k)
                         rank = pr * o - 1
-                        ok = rank >= cfg["ev"] and pr >= {"main": 0.60, "sys": 0.46, "hi": 0.28}[typ]
+                        ok = rank >= cfg["ev"] and pr >= {"main": 0.60, "sys": 0.46, "hi": 0.28, "big": 0.26}[typ]
                     else:
                         pr = pv[a][k]
-                        rank = pr * o if typ == "hi" else pr
+                        rank = pr * o if typ in ("hi", "big") else pr
                         ok = pr >= cfg["need"](o)
                     if ok and (best is None or rank > best[0]):
                         best = (rank, pr, k, o)
@@ -1632,13 +1658,14 @@ def own_coupons(pool, base):
             elif typ == "sys":
                 sel = c[:MOLLA_SYS[1]] if len(c) >= MOLLA_SYS[0] + 1 else []
             else:
+                target, cap = (MOLLA_BIG, 9) if typ == "big" else (MOLLA_HI, 7)
                 sel, tot = [], 1.0
-                for x in c[:7]:
+                for x in c[:cap]:
                     sel.append(x)
                     tot *= x[3]
-                    if tot >= MOLLA_HI:
+                    if tot >= target:
                         break
-                if tot < MOLLA_HI:
+                if tot < target:
                     sel = []
             used |= {x[4]["id"] for x in sel}
             recs = [dict(base(m), k=k, o=o, p=round(pr, 3), sc=m["p"]["score"])
@@ -1771,11 +1798,12 @@ def extra_coupons(pool, base):
 
 def coupon_picks(c):
     """Bir donemin tum kuponlarindaki secimler (ortak + analizcilerin kendi kuponlari + devre / skor kuponlari)."""
-    out = list(c["picks"]) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", [])
+    out = list(c["picks"]) + (c.get("hi") or {}).get("picks", []) + (c.get("sys") or {}).get("picks", []) + \
+        (c.get("big") or {}).get("picks", [])
     for x in XK_ALL:
         out += (c.get(x) or {}).get("picks", [])
     for own in (c.get("ac") or {}).values():
-        out += own.get("main", []) + own.get("hi", []) + (own.get("sys") or {}).get("picks", [])
+        out += own.get("main", []) + own.get("hi", []) + (own.get("sys") or {}).get("picks", []) + own.get("big", [])
     return out
 
 
@@ -1922,6 +1950,18 @@ def molla(matches, done_by_id, src_team, use):
             got = [x for x in pan if x[0] >= 3][:6]
         return got if len(got) >= 3 else pan[:3]
 
+    def big_coupon(pool, avoid=()):
+        """Yuksek oran: analizcilerin en cok onayladigi orta-yuksek oranli secimler; toplam oran en az MOLLA_BIG."""
+        pan_b = agent_panel(pool, "big", avoid)
+        for minv in (3, 2, 0):
+            got, tot = [], 1.0
+            for x in [y for y in pan_b if y[0] >= minv][:9]:
+                got.append(x)
+                tot *= x[3]
+                if tot >= MOLLA_BIG:
+                    return got
+        return None
+
     if due:
         until = (day0 + timedelta(days=MOLLA_DAYS - 1)).strftime("%Y-%m-%d")
         pool = window(today)
@@ -1949,6 +1989,8 @@ def molla(matches, done_by_id, src_team, use):
         sy = [x for x in pan_sys if x[0] >= 3][:n]
         if len(sy) < n:
             sy = pan_sys[:n]
+        used |= {x[5]["id"] for x in sy}
+        big = big_coupon(pool, used)
         # Ajan raporlari: her ajanin havuzda tek basina en cok guvendigi maclar
         best = [(m, agent_best(m)) for m in pool]
         rep_ = {}
@@ -1974,6 +2016,8 @@ def molla(matches, done_by_id, src_team, use):
                    "panel": {"n": len(pool), "rep": rep_}, "ac": own_coupons(pool, base)}
             if hi:
                 cpn["hi"] = {"picks": [arec(x) for x in by_date(hi)]}
+            if big:
+                cpn["big"] = {"picks": [arec(x) for x in by_date(big)]}
             if len(sy) >= need + 1:
                 cpn["sys"] = {"k": need, "picks": [arec(x) for x in by_date(sy)]}
             cpn.update(extra_coupons(pool, base))
@@ -1987,6 +2031,22 @@ def molla(matches, done_by_id, src_team, use):
             state["coupons"][key] = cpn
             print(f"   MollaMyrat ajan heyeti: {len(pool)} mac tarandi -> banko {len(picks)}, "
                   f"surpriz {len(hi or [])}, sistem {len(sy) if len(sy) >= need + 1 else 0}", flush=True)
+    # 2a) yuksek oran kuponu (35+): donemde yoksa bir kez eklenir; ortak ve analizciler daha once kullandiklari
+    #     maclari tekrar kullanmaz. Kurulan kupon sonradan degismez.
+    keys = sorted(state["coupons"])
+    if keys and "big" not in state["coupons"][keys[-1]] and "ac" in state["coupons"][keys[-1]]:
+        cur = state["coupons"][keys[-1]]
+        pool = window(keys[-1])
+        used = {x["id"] for x in cur["picks"] + (cur.get("hi") or {}).get("picks", []) + (cur.get("sys") or {}).get("picks", [])}
+        bg = big_coupon(pool, used)
+        cur["big"] = {"picks": [arec(x) for x in by_date(bg)]} if bg else {"picks": []}
+        av = {a_: {x["id"] for x in o_.get("main", []) + o_.get("hi", []) + (o_.get("sys") or {}).get("picks", [])}
+              for a_, o_ in cur["ac"].items()}
+        ob = own_coupons(pool, base, ("big",), av)
+        for a_, o_ in cur["ac"].items():
+            o_["big"] = (ob.get(a_) or {}).get("big", [])
+        print(f"   MollaMyrat: yuksek oran kuponu eklendi (ortak {len(cur['big']['picks'])} mac, "
+              f"analizciler {[len(o_['big']) for o_ in cur['ac'].values()]})", flush=True)
     # 2b) guncel kuponun yaninda yuksek oranli ve sistem kuponu (bir kez uretilir, sonra degismez)
     keys = sorted(state["coupons"])
     if keys:
@@ -2820,7 +2880,7 @@ def main():
             os.remove(os.path.join(ddir, fn))
 
     data = {"updated": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), "split": 1,
-            "leagues": [{"id": l["id"], "n": l["n"], "g": l["g"], "cup": l["cup"], "nat": l["nat"], "tier": l["tier"], "tsdb": bool(l["tsdb"])}
+            "leagues": [{"id": l["id"], "n": l["n"], "g": l["g"], "cup": l["cup"], "nat": l["nat"], "tier": l["tier"], "tsdb": bool(l["tsdb"]), "b": l.get("b")}
                         for l in LEAGUES],
             "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb, "since": STATS_FROM,
             "agacc": agacc, "agaccbb": agaccbb, "agents": AGENTS,
