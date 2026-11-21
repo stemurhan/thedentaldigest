@@ -2,9 +2,11 @@ name: Kuponlari sonuclandir
 
 # GitHub'in zamanlayicisi yogunlukta tetikleri saatlerce geciktiriyor ya da atliyor (30 dakikalik
 # gorev 6-8 saatte bir calisiyordu). Bu yuzden bu is akisi kendi kendini surdurur:
-#  * bir calisma ~5,5 saat boyunca 8 dakikada bir kuponlari sonuclandirir,
+#  * bir calisma ~2 saat boyunca 8 dakikada bir kuponlari sonuclandirir (kisa calisma: GitHub sunucusu
+#    uzun islerde baglantiyi kaybedebiliyor),
 #  * bulten 2 saattir yenilenmediyse "Bulten guncelle" is akisini baslatir,
 #  * bitmeden once kendini yeniden baslatir (yerlesik GITHUB_TOKEN ile; kisisel anahtar gerekmez).
+#  * calisma yarida olurse "Bulten guncelle" zinciri yeniden baslatir (iki is akisi birbirini kollar).
 # Asagidaki zamanlanmis tetik yalnizca zincir bir sekilde koparsa yeniden baslatmak icindir.
 on:
   schedule:
@@ -25,13 +27,13 @@ concurrency:
 jobs:
   sonuclandir:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 140
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Kuponlari sonuclandir (8 dakikada bir, ~5,5 saat)
+      - name: Kuponlari sonuclandir (8 dakikada bir, ~2 saat)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -51,7 +53,7 @@ jobs:
               echo "bulten $((age / 60)) dakikadir yenilenmedi: guncelleme baslatiliyor"
               gh workflow run guncelle.yml --ref main || true
             fi
-            [ $(( $(date +%s) - start )) -ge 19800 ] && break      # 5,5 saat
+            [ $(( $(date +%s) - start )) -ge 6900 ] && break       # ~2 saat
             sleep 480
           done
       - name: Zinciri surdur (bu is akisini yeniden baslat)

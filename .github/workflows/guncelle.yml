@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: write          # sonuclandirma zinciri durduysa yeniden baslatmak icin
 
 concurrency:
   group: bulten
@@ -59,4 +60,16 @@ jobs:
           else
             git commit -m "Bulten guncellendi"
             git push
+          fi
+      - name: Sonuclandirma zincirini kolla (durduysa yeniden baslat)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh run list --workflow sonuclandir.yml -L 10 --json status               --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null || echo 1)
+          if [ "$n" = "0" ]; then
+            echo "sonuclandirma zinciri calismiyor: yeniden baslatiliyor"
+            gh workflow run sonuclandir.yml --ref main
+          else
+            echo "sonuclandirma zinciri calisiyor ($n)"
           fi
