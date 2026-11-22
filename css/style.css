@@ -938,3 +938,6 @@ button.morebtn{cursor:pointer;width:100%}
 /* ---------- v21: karne aciklamasi ---------- */
 .kpi b .kof{display:inline;font-size:12px;color:var(--mut);font-weight:600;text-transform:none;letter-spacing:0}
 .facn{margin:10px 2px 0}
+/* saat dilimi secimi (altbilgi) */
+.foot .tzsel{display:inline-flex;align-items:center;gap:6px}
+.foot .tzsel select{background:var(--s2);border:1px solid var(--line);border-radius:7px;padding:3px 6px;color:var(--tx);font:inherit}

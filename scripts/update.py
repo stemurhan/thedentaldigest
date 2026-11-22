@@ -802,9 +802,20 @@ STRIP_RE = re.compile(r"^(FC|FK|PFC|SK|JK|CF|AFC|SC|ФК|ПФК|АФК|СК)\s+|
 
 def clean_label(s):
     s = re.sub(r"\s*\(.*?\)\s*$", "", s or "").strip()
+    s = s.strip("«»\"“”„'").strip()               # Wikidata'daki tirnakli etiketler («Ла-Лувьер»)
     for _ in range(2):
         s = STRIP_RE.sub("", s).strip()
+    if s[:1].islower():                             # "brommapojkarna" -> "Brommapojkarna"
+        s = s[:1].upper() + s[1:]
     return s if len(s) <= 34 else ""
+
+
+# Wikidata etiketi alt takima / akademiye aitse (or. Chelsea -> "Резервисты и Академия ФК «Челси»") kullanilmaz
+RESERVE_LAB_RE = re.compile(r"(Резерв|Академ|Молод|дубл|\bU-?\d{2}\b|Reserv|Akademi|Altyap|Gençlik|Kadın|\s(B|II)$)", re.I)
+# Turkcede karsiligi olmayan takim adlarinda sehir adlari Turkce yazilir (Spartak Moskova ile Rodina Moscow yan yana durmasin)
+TR_CITY = (("Moscow", "Moskova"), ("Warsaw", "Varşova"), ("Belgrade", "Belgrad"), ("Bucharest", "Bükreş"),
+           ("Prague", "Prag"), ("Athens", "Atina"), ("Kyiv", "Kiev"), ("Lisbon", "Lizbon"), ("Vienna", "Viyana"),
+           ("Copenhagen", "Kopenhag"), ("Munich", "Münih"), ("Cologne", "Köln"), ("Seville", "Sevilla"))
 
 
 def norm(s, drop=True):
@@ -979,6 +990,26 @@ NAME_FIX = {
     "RB Salzburg": {"tr": "Red Bull Salzburg", "ru": "Ред Булл Зальцбург", "tk": "Red Bull Zalsburg"},
     "Ferencvaros": {"tr": "Ferencváros", "ru": "Ференцварош", "tk": "Ferenswaroş"},
     "Osasuna": {"tr": "Osasuna", "ru": "Осасуна", "tk": "Osasuna"},
+    # Wikidata'da baska bir kulupla (ya da alt takimla) eslesen veya okunmasi zor etiketi olanlar
+    "Paris FC": {"tr": "Paris FC", "ru": "Пари Франс", "tk": "Pari FK"},
+    "Lyon": {"tr": "Lyon", "ru": "Лион", "tk": "Lion"},
+    "Dynamo Makhachkala": {"tr": "Dinamo Mahaçkale", "ru": "Динамо Махачкала", "tk": "Dinamo Mahaçkala"},
+    "IF Brommapojkarna": {"tr": "Brommapojkarna", "ru": "Броммапойкарна", "tk": "Brommapoýkarna"},
+    "Al Taawoun": {"tr": "Al Taawoun", "ru": "Аль-Таавун", "tk": "Al-Taawun"},
+    "Neom SC": {"tr": "Neom", "ru": "Неом", "tk": "Neom"},
+    "Ural Yekaterinburg": {"tr": "Ural Yekaterinburg", "ru": "Урал", "tk": "Ural Ýekaterinburg"},
+    "Iberia 1999": {"tr": "Iberia 1999", "ru": "Иберия 1999", "tk": "Iberiýa 1999"},
+    "Grêmio": {"tr": "Grêmio", "ru": "Гремио", "tk": "Gremio"},
+    "Pisa": {"tr": "Pisa", "ru": "Пиза", "tk": "Piza"},
+    "Chelsea": {"tr": "Chelsea", "ru": "Челси", "tk": "Çelsi"},
+    "Albacete": {"tr": "Albacete", "ru": "Альбасете", "tk": "Albasete"},
+    "IMT Novi Beograd": {"tr": "IMT Novi Beograd", "ru": "ИМТ Нови Београд", "tk": "IMT Nowi Beograd"},
+    "Red Star Belgrade": {"tr": "Kızılyıldız", "ru": "Црвена звезда", "tk": "Crwena Zwezda"},
+    "LAFC": {"tr": "Los Angeles FC", "ru": "Лос-Анджелес", "tk": "Los-Anjeles FK"},
+    "Rodina Moscow": {"tr": "Rodina Moskova", "ru": "Родина", "tk": "Rodina Moskwa"},
+    "Veles Moscow": {"tr": "Veles Moskova", "ru": "Велес", "tk": "Weles Moskwa"},
+    "Legia Warsaw": {"tr": "Legia Varşova", "ru": "Легия", "tk": "Legiýa Warşawa"},
+    "AS Monaco": {"tr": "Monaco", "ru": "Монако", "tk": "Monako"},
 }
 RESERVE_RE = re.compile(r"(\s(B|C|II|III)$|U-?\d{2}\b|Reserve|Juvenil|Youth|Women|Atlètic|Fortuna)", re.I)
 
@@ -1019,8 +1050,16 @@ def localize(teams, nat_ids, team_country):
             hit += 1
             for lg in ("ru", "tr", "tk"):
                 lab = clean_label(rec[1][lg])
+                if lab and RESERVE_LAB_RE.search(lab) and not RESERVE_RE.search(t["n"]):
+                    lab = ""                # alt takim / akademi etiketi ana takima yazilmaz
                 if lab:
                     t[lg] = lab
+        if not t.get("tr") and tid not in nat_ids:
+            tr_ = t["n"]
+            for a_, b_ in TR_CITY:
+                tr_ = re.sub(r"\b" + a_ + r"\b", b_, tr_)
+            if tr_ != t["n"]:
+                t["tr"] = tr_
     print(f"   {hit}/{len(teams)} takim adi eslesti", flush=True)
 
 
@@ -1110,7 +1149,7 @@ def load_pins():
         for x in (c.get("sk") or {}).get("picks", []):
             if alive(x) and x.get("sc"):
                 PINS[x["id"]].append(("s", x["sc"]))
-        for x in (c.get("hf") or {}).get("picks", []):
+        for x in (c.get("hf") or {}).get("picks", []) + (c.get("hfs") or {}).get("picks", []):
             if alive(x) and x["k"].startswith("HF"):
                 PINS[x["id"]].append(("ft", x["k"][4]))
                 PIN_HT[x["id"]] = x["k"][2]
@@ -1619,13 +1658,20 @@ def agent_best(m):
             sa = agent_score(lam[a], m["id"], a)     # analizci kendi tahmini skoruyla celisen secimi yapmaz
             ka = [x for x in ks if wins(x, *sa)] or                 [x for x in AG_KEYS if m["o"].get(x) and wins(x, *sa)] or ks   # oran esigi esner, tutarlilik esnemez
             k = max(ka, key=lambda x: pv[a][x])
+            if pv[a][k] < 0.5:
+                # kendi skoruyla celismeyen en iyi secim bile %50'nin altinda: karsi taraf daha olasi demektir.
+                # Ajan bu macta "en guvendigi secim" gostermez (cekimser); gol beklentisi raporda kalir.
+                out[a] = [None, round(pv[a][k], 3), round(lam[a][0], 2), round(lam[a][1], 2), sa]
+                continue
             out[a] = [k, round(pv[a][k], 3), round(lam[a][0], 2), round(lam[a][1], 2), sa]
     if len(pv) >= 3 and m.get("src") != "model":
         cons = lambda k: wmean(pv, k)
         c = [k for k in ks if cons(k) >= 0.4 and wins(k, *m["p"]["score"])]
         if c:
             k = max(c, key=lambda x: cons(x) * m["o"][x])
-            out["vr"] = [k, round(cons(k) * m["o"][k] - 1, 3)]
+            ev = cons(k) * m["o"][k] - 1
+            if ev >= 0:                              # beklenen getirisi negatifse Rifki pas gecer
+                out["vr"] = [k, round(ev, 3)]
     return out
 
 
@@ -1693,9 +1739,10 @@ def own_coupons(pool, base, types=("main", "hi", "sys", "big"), avoid=None):
 
 
 # ---- Devre ve skor kuponlari: ajanlarin ortak karariyla (ilk yari sonucu, ikinci yari sonucu, mac skoru) ----
-XK_TYPES = ("hf", "sk")               # ilk yari / mac sonucu (IY/MS) ve mac skoru
-XK_ALL = ("iy", "y2", "hf", "sk")       # sonuclandirma: eski (ayri ilk yari / ikinci yari) kuponlar da
-XK_N = {"hf": 3, "sk": 3}               # her kupondaki mac sayisi
+XK_TYPES = ("hf", "sk", "hfs")        # ilk yari / mac sonucu (IY/MS), mac skoru ve IY/MS sistem kuponu
+XK_ALL = ("iy", "y2", "hf", "sk", "hfs")  # sonuclandirma: eski (ayri ilk yari / ikinci yari) kuponlar da
+XK_N = {"hf": 3, "sk": 3, "hfs": 8}     # her kupondaki mac sayisi
+HFS_K = 5                               # IY/MS sistem kuponu: 8 macin en az 5'i (5'li kolonlar, 56 kolon)
 XK_NEED = 0.30                          # IY/MS secenegi icin bir ajanin onay esigi
 XK_HF_MIN = 0.12                        # IY/MS kuponuna girecek secenegin en dusuk ortak olasiligi
 HF_KEYS = ["1/1", "1/X", "1/2", "X/1", "X/X", "X/2", "2/1", "2/X", "2/2"]
@@ -1807,10 +1854,15 @@ def extra_coupons(pool, base):
         cand["sk"].append(((v, cons + bonus), dict(base(m), k=f"S{ci}-{cj}", o=o, p=round(cons, 3),
                                                     sc=[ci, cj], v=v, ag=row, os="model")))
     out = {}
-    for typ in XK_TYPES:
+    for typ in ("hf", "sk"):
         c = sorted(cand[typ], key=lambda x: (-x[0][0], -x[0][1]))[:XK_N[typ]]
         if len(c) >= 2:
             out[typ] = {"picks": sorted((x[1] for x in c), key=lambda r: r["d"])}
+    # IY/MS sistem kuponu: ajanlarin en cok onayladigi 8 IY/MS secimi; 5'li tum kombinasyonlar ayri kolondur,
+    # en az 5 mac tutarsa kazandirir. Tam 8 uygun mac yoksa kurulmaz (sistem sekli sabit 5/8).
+    c = sorted(cand["hf"], key=lambda x: (-x[0][0], -x[0][1]))[:XK_N["hfs"]]
+    if len(c) == XK_N["hfs"]:
+        out["hfs"] = {"k": HFS_K, "picks": sorted((x[1] for x in c), key=lambda r: r["d"])}
     return out
 
 
@@ -2013,7 +2065,7 @@ def molla(matches, done_by_id, src_team, use):
         best = [(m, agent_best(m)) for m in pool]
         rep_ = {}
         for a_ in AGENTS:
-            rows = sorted(((b[a_][1], b[a_][0], m) for m, b in best if a_ in b), key=lambda x: -x[0])[:4]
+            rows = sorted(((b[a_][1], b[a_][0], m) for m, b in best if a_ in b and b[a_][0]), key=lambda x: -x[0])[:4]
             rep_[a_] = [dict(base(m), k=k, o=m["o"][k], p=v) for v, k, m in rows]
 
         def sprob(m):
@@ -2804,11 +2856,11 @@ def main():
         preds[m["id"]] = {"d": m["d"], "lg": m["lg"], "sc": m["p"]["score"], "k": k_, "o": o_,
                           "t3": [x[:2] for x in m["p"]["top"][:3]],
                           "p": [m["p"]["p1"], m["p"]["px"], m["p"]["p2"]],
-                          "ag": {a: v[0] for a, v in (m.get("ag") or {}).items()}}
+                          "ag": {a: v[0] for a, v in (m.get("ag") or {}).items() if v[0]}}
     for m in (bb or {}).get("matches", []):
         preds[m["id"]] = {"d": m["d"], "lg": "nba", "sc": m["p"]["score"], "k": m["tip"]["k"], "o": m["tip"]["o"],
                           "ln": m["line"], "p": [m["p"]["p1"], 0, m["p"]["p2"]],
-                          "ag": {a: v[0] for a, v in (m.get("ag") or {}).items()}}
+                          "ag": {a: v[0] for a, v in (m.get("ag") or {}).items() if v[0]}}
     pkeep = (NOW - timedelta(days=45)).strftime("%Y-%m-%d")
     preds = {k: v for k, v in preds.items() if v["d"][:10] >= pkeep}
     cache_write(preds_path, preds)
@@ -2911,8 +2963,119 @@ def main():
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
         f.write(";")
     os.replace(tmp, OUT)
+    try:
+        write_seo_pages(data)
+    except Exception as ex:                       # SEO sayfalari bulteni asla durdurmaz
+        print("   SEO sayfalari atlandi:", ex, flush=True)
     print(f"Bitti: {len(matches)} mac, {len(results)} sonuc -> {OUT} "
           f"({os.path.getsize(OUT) // 1024} KB, {time.time() - t0:.0f} sn)", flush=True)
+
+
+# ---- Arama motorlari icin statik lig sayfalari + site haritasi ------------------------------
+# Uygulama "#/" adresleriyle calistigi icin arama motorlari mac / analiz icerigini goremez.
+# Her lig icin yaklasan maclari ve Analiz365 tahminini duz HTML olarak yazan bir sayfa uretilir
+# (lig/<lig>.html); ziyaretci sayfadaki baglantiyla uygulamaya gecer. sitemap.xml bunlari listeler.
+SITE_URL = "https://" + (open(os.path.join(ROOT, "CNAME"), encoding="utf-8").read().strip()
+                         if os.path.exists(os.path.join(ROOT, "CNAME")) else "thedentaldigest.org")
+SEO_TZ = timezone(timedelta(hours=3))          # sayfalar Turkce: saatler TSI
+SEO_LAB = {"1": "MS 1", "X": "MS X", "2": "MS 2", "1X": "Çifte Şans 1X", "12": "Çifte Şans 12", "X2": "Çifte Şans X2",
+           "KGV": "Karşılıklı Gol Var", "KGY": "Karşılıklı Gol Yok"}
+SEO_DAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+SEO_MON = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+
+
+def seo_lab(k):
+    if k in SEO_LAB:
+        return SEO_LAB[k]
+    if k[:1] in "OU":
+        return ("Üst " if k[0] == "O" else "Alt ") + k[1:]
+    return k
+
+
+def write_seo_pages(data):
+    from html import escape as H
+    teams = data["teams"]
+    tn = lambda i: (teams.get(i) or {}).get("tr") or (teams.get(i) or {}).get("n") or "?"
+    odir = os.path.join(ROOT, "lig")
+    os.makedirs(odir, exist_ok=True)
+    by_lg = defaultdict(list)
+    for m in data["matches"]:
+        by_lg[m["lg"]].append(m)
+    made = []
+    for l in data["leagues"]:
+        ms = sorted(by_lg.get(l["id"], []), key=lambda m: m["d"])
+        if not ms:
+            continue
+        name = l["n"].get("tr") or l["id"]
+        rows, day = [], None
+        for m in ms[:60]:
+            dt = pdate(m["d"]).astimezone(SEO_TZ)
+            dk = f"{dt.day} {SEO_MON[dt.month - 1]} {SEO_DAYS[dt.weekday()]}"
+            if dk != day:
+                rows.append(f'<tr class="d"><th colspan="4">{dk}</th></tr>')
+                day = dk
+            c = m.get("cons") or {}
+            p = m.get("p") or {}
+            sc = p.get("score")
+            tip = f'{H(seo_lab(c["k"]))} <small>({c["o"]:.2f})</small>' if c.get("k") else "–"
+            rows.append(f'<tr><td>{dt:%H:%M}</td><td><a href="../#/mac/{H(m["id"])}">{H(tn(m["h"]))} – {H(tn(m["a"]))}</a></td>'
+                        f'<td>{f"{sc[0]}-{sc[1]}" if sc else "–"}</td><td>{tip}</td></tr>')
+        desc = (f"{name} maç programı, oranlar ve Analiz365 skor tahminleri: "
+                + ", ".join(f"{tn(m['h'])} – {tn(m['a'])}" for m in ms[:4]) + ".")[:300]
+        url = f"{SITE_URL}/lig/{l['id']}.html"
+        html_ = f"""<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{H(name)} Tahminleri ve Maç Programı — Analiz365</title>
+<meta name="description" content="{H(desc)}">
+<link rel="canonical" href="{url}">
+<meta property="og:title" content="{H(name)} Tahminleri — Analiz365">
+<meta property="og:description" content="{H(desc)}">
+<meta property="og:url" content="{url}">
+<link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+<style>
+:root{{--bg:#0b1220;--s1:#121b2e;--tx:#e6edf7;--mut:#8b9ab3;--line:#22304a;--ac:#22c55e}}
+body{{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}}
+main{{max-width:860px;margin:0 auto;padding:20px 16px 40px}}
+a{{color:var(--ac)}} h1{{font-size:24px;margin:8px 0}} p{{color:var(--mut)}}
+table{{width:100%;border-collapse:collapse;background:var(--s1);border-radius:12px;overflow:hidden}}
+td,th{{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left}} tr.d th{{color:var(--mut);font-weight:600;font-size:13px}}
+small{{color:var(--mut)}} .btn{{display:inline-block;margin:12px 0;padding:10px 16px;border-radius:10px;background:var(--ac);color:#06110a;font-weight:700;text-decoration:none}}
+</style>
+</head>
+<body>
+<main>
+<a href="../">← Analiz365</a>
+<h1>{H(name)} tahminleri ve maç programı</h1>
+<p>Yaklaşan {H(name)} maçları, Analiz365 modelinin tahmini skoru ve beş analiz ajanının ortak tahmini. Saatler Türkiye saatine (TSİ) göredir. Son güncelleme: {NOW.astimezone(SEO_TZ):%d.%m.%Y %H:%M}.</p>
+<a class="btn" href="../#/">Canlı bülten ve detaylı analiz</a>
+<table>
+<thead><tr><th>Saat</th><th>Maç</th><th>Tahmini skor</th><th>Analiz365 tahmini</th></tr></thead>
+<tbody>
+{chr(10).join(rows)}
+</tbody>
+</table>
+<p>Tahminler istatistiksel modele dayanır, kesinlik içermez. 18 yaşından küçüklerin bahis oynaması yasaktır.</p>
+</main>
+</body>
+</html>
+"""
+        with open(os.path.join(odir, l["id"] + ".html"), "w", encoding="utf-8") as f:
+            f.write(html_)
+        made.append(l["id"])
+    for fn in os.listdir(odir):                       # bultende maci kalmayan ligin sayfasi kaldirilir
+        if fn.endswith(".html") and fn[:-5] not in made:
+            os.remove(os.path.join(odir, fn))
+    today = NOW.strftime("%Y-%m-%d")
+    urls = [f'  <url><loc>{SITE_URL}/</loc><lastmod>{today}</lastmod><changefreq>hourly</changefreq><priority>1.0</priority></url>']
+    urls += [f'  <url><loc>{SITE_URL}/lig/{i}.html</loc><lastmod>{today}</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>'
+             for i in made]
+    with open(os.path.join(ROOT, "sitemap.xml"), "w", encoding="utf-8") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+                + "\n".join(urls) + "\n</urlset>\n")
+    print(f"   SEO: {len(made)} lig sayfasi + sitemap.xml", flush=True)
 
 
 if __name__ == "__main__":

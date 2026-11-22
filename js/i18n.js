@@ -950,3 +950,35 @@ Object.assign(window.I18N.tk, { ak_ms_open: 'Dowam edýän kuponlar', ak_ms_done
 Object.assign(window.I18N.tr, { f_predn: 'Tahminli maç', fin_only: 'Karne yalnızca maç başlamadan tahmini kaydedilmiş {n} maçtan hesaplanır; listedeki diğer maçlar bültene girmeden oynandı.', fin_small: 'Karne yeni başladı: şimdilik {n} tahminli maç var, oranlar en az 30 maçtan sonra anlamlı olur. Tahmini kaydedilmemiş maçlar sayılmaz.' });
 Object.assign(window.I18N.ru, { f_predn: 'Матчи с прогнозом', fin_only: 'Статистика считается только по {n} матчам, прогноз на которые был сохранён до начала; остальные матчи прошли до попадания в линию.', fin_small: 'Статистика только началась: пока {n} матчей с прогнозом, показатели станут надёжными после 30 матчей. Матчи без прогноза не учитываются.' });
 Object.assign(window.I18N.tk, { f_predn: 'Çaklamaly oýun', fin_only: 'Netije diňe oýun başlamazdan öň çaklamasy ýazylan {n} oýundan hasaplanýar; beýlekiler býulletene girmänkä oýnaldy.', fin_small: 'Netije täze başlady: häzir {n} çaklamaly oýun bar, görkezijiler 30 oýundan soň ygtybarly bolar. Çaklamasy ýazylmadyk oýunlar hasaba alynmaýar.' });
+
+// ajan secimleri (cekimser / pas), onay etiketi, saat dilimi secimi, IY/MS sistem kuponu
+Object.assign(window.I18N.tr, {
+  ag_na: 'çekimser (net seçim yok)', ag_pass: 'pas (net seçim yok)',
+  ag_vr_pass: 'hiçbir seçenekte beklenen getiri pozitif değil, pas geçiyor',
+  ax_nopick: 'Hiçbir seçenekte olasılık %50\'yi geçmiyor; bu maçta seçim yapmıyorum (çekimser).',
+  ag_votes: '{v}/5 ajan onaylıyor', ag_votes_t: '{v}/5 onay: {v} ajan bu seçimi %50\'den daha olası buluyor (Rıfkı için: oranı değerli buluyor). Onay, ajanın en güvendiği seçimin bu olduğu anlamına gelmez.',
+  ax_v_votes: '{v}/5 onay: {v} ajan {k} seçeneğini %50\'den daha olası buluyor; aşağıda her ajanın en güvendiği seçim ayrıca yazar.',
+  ax_v_agree: '{n} en güvendiği seçim olarak {k} seçeneğinde birleşti (ortak olasılık %{p}).',
+  tz_l: 'Saatler:', tz_local: 'Cihaz saati', tz_asb: 'Aşkabat',
+  m_k_hfs: 'İY/MS sistem kuponu'
+});
+Object.assign(window.I18N.ru, {
+  ag_na: 'воздержался (нет явного выбора)', ag_pass: 'пас (нет явного выбора)',
+  ag_vr_pass: 'ни у одного исхода нет положительной ожидаемой доходности — пас',
+  ax_nopick: 'Ни один исход не превышает 50%; в этом матче я воздерживаюсь.',
+  ag_votes: 'одобряют {v}/5 агентов', ag_votes_t: '{v}/5 одобрений: {v} агентов считают этот исход вероятнее 50% (Рыфкы — что коэффициент ценный). Это не значит, что это их главный выбор.',
+  ax_v_votes: '{v}/5 одобрений: {v} агентов считают исход {k} вероятнее 50%; главный выбор каждого агента указан ниже.',
+  ax_v_agree: '{n} выбрали главным один исход: {k} (общая вероятность {p}%).',
+  tz_l: 'Время:', tz_local: 'Время устройства', tz_asb: 'Ашхабад',
+  m_k_hfs: 'Системный купон тайм/матч'
+});
+Object.assign(window.I18N.tk, {
+  ag_na: 'saklandy (anyk saýlaw ýok)', ag_pass: 'pas (anyk saýlaw ýok)',
+  ag_vr_pass: 'hiç bir saýlawda garaşylýan girdeji položitel däl, pas geçýär',
+  ax_nopick: 'Hiç bir saýlawda ähtimallyk %50-den geçmeýär; bu oýunda saýlaw etmeýärin (saklandym).',
+  ag_votes: '{v}/5 agent tassyklaýar', ag_votes_t: '{v}/5 tassyk: {v} agent bu saýlawy %50-den ähtimal hasaplaýar (Rıfkı üçin: koeffisiýenti gymmatly). Bu, agentiň iň ynanýan saýlawy diýmek däl.',
+  ax_v_votes: '{v}/5 tassyk: {v} agent {k} saýlawyny %50-den ähtimal hasaplaýar; her agentiň iň ynanýan saýlawy aşakda ýazylýar.',
+  ax_v_agree: '{n} iň ynanýan saýlaw hökmünde {k} saýlawynda birleşdi (umumy ähtimallyk %{p}).',
+  tz_l: 'Wagt:', tz_local: 'Enjam wagty', tz_asb: 'Aşgabat',
+  m_k_hfs: 'Ýarym/netije ulgam kupony'
+});

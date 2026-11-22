@@ -59,7 +59,7 @@ def main():
     kind = ("sb_secret" if KEY.startswith("sb_secret_") else "sb_publishable (YANLIS: gizli anahtar olmali)"
             if KEY.startswith("sb_publishable_") else "JWT" if KEY.startswith("eyJ") else "tanimsiz")
     try:
-        pend = sb("/rest/v1/coupons?status=eq.pending&select=id,sels&limit=5000") or []
+        pend = sb("/rest/v1/coupons?status=eq.pending&select=id,sels,created_at&limit=5000") or []
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
             # anahtarin kendisi yazdirilmaz; yalnizca turu ve uzunlugu
@@ -73,12 +73,27 @@ def main():
         oarc = json.load(open(os.path.join(ROOT, "data", "odds.json"), encoding="utf-8"))
     except Exception:
         oarc = {}
+    # kurcalama denetimi (tarayici oran ve baslama saatini kendisi gonderir; veritabani bunlari bilemez):
+    #  * kupondaki oran sitede yayinlanan en yuksek orandan fazlaysa,
+    #  * kupon, macin gercek baslama saatinden sonra oynandiysa (sahte "d" ile biten maca kupon),
+    #  * kupondaki mac sitede hic yayinlanmadiysa (arsiv 45 gun tutulur; yeni kuponlarda bilinmeyen mac olamaz)
+    # kupon gecersiz sayilir.
     bad = []
     for c in pend:
+        try:
+            made = datetime.fromisoformat((c.get("created_at") or "").replace("Z", "+00:00"))
+        except ValueError:
+            made = None
         for s in c.get("sels") or []:
             a = oarc.get(s.get("m"))
             if not a:
+                if oarc and made and made > NOW - timedelta(days=30):
+                    bad.append(c["id"])
+                    break
                 continue
+            if made and made > pdate(a["d"]) + timedelta(minutes=2):   # 2 dk saat farki payi
+                bad.append(c["id"])
+                break
             mx = a["o"].get(s.get("k"))
             try:
                 o = float(s.get("o"))
@@ -89,13 +104,14 @@ def main():
                 break
     if bad:
         n = sb("/rest/v1/rpc/void_coupons", "POST", {"p_ids": bad})
-        print(f"{n} kupon gecersiz sayildi (oran yayinlanandan yuksek)")
+        print(f"{n} kupon gecersiz sayildi (oran yayinlanandan yuksek, mac basladiktan sonra oynanmis ya da bilinmeyen mac)")
         pend = [c for c in pend if c["id"] not in bad]
     need = {}
     for c in pend:
         for s in c.get("sels") or []:
             if "ok" not in s:
-                need[s["m"]] = (s.get("lg"), pdate(s["d"]))
+                a = oarc.get(s["m"])          # baslama saati: sitenin yayinladigi (kupondaki degil)
+                need[s["m"]] = (s.get("lg"), pdate(a["d"] if a else s["d"]))
     need = {k: v for k, v in need.items() if v[1] < NOW - timedelta(minutes=95)}
     print(f"{len(pend)} bekleyen kupon, sonucu aranan {len(need)} mac")
     if not need:

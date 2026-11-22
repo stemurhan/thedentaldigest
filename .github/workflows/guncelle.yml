@@ -51,7 +51,7 @@ jobs:
         run: |
           git config user.name "analiz365-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data
+          git add data lig sitemap.xml
           if git diff --cached --quiet; then exit 0; fi
           # Depo sismesin: veri islemesi tek bir "Bulten guncellendi" kaydi olarak yenilenir
           if [ "$(git log -1 --pretty=%s)" = "Bulten guncellendi" ]; then

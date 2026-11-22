@@ -3,7 +3,7 @@
   'use strict';
   const D = window.AHAL_DATA || { leagues: [], teams: {}, tables: {}, matches: [], results: [], updated: null };
   const BB = D.bb || { teams: {}, matches: [], results: [], table: [] };
-  const TZ = 'Asia/Ashgabat', CUR = 'TMT';
+  const CUR = 'TMT';
   const MIN_STAKE = 20, MAX_STAKE = 5000, MAX_SEL = 20, MAX_WIN = 500000, START_BAL = 1000, TIP_N = 10;
   const GROUPS = ['tr', 'ru', 'eu', 'nat', 'en', 'es', 'de', 'it', 'fr', 'nl', 'pt', 'ot', 'wd'];
   const GBADGE = { tr: 'TR', ru: 'RU', eu: 'UEFA', nat: 'INT', en: 'ENG', es: 'ESP', de: 'GER', it: 'ITA', fr: 'FRA', nl: 'NED', pt: 'POR', ot: 'EUR', wd: 'WLD' };
@@ -12,6 +12,12 @@
     get(k, d) { try { const v = localStorage.getItem('ahal_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('ahal_' + k, JSON.stringify(v)); } catch (e) { /* ozel mod */ } }
   };
+
+  // saat dilimi: varsayilan cihazin kendi saati; istenirse Askabat (UTC+5). Secim altbilgiden degistirilir.
+  const TZ_ASB = 'Asia/Ashgabat';
+  const TZ_LOCAL = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || TZ_ASB; } catch (e) { return TZ_ASB; } })();
+  let TZ = LS.get('tz', 'local') === 'asb' ? TZ_ASB : TZ_LOCAL;
+  const tzOff = z => { try { const p = new Intl.DateTimeFormat('en-US', { timeZone: z, timeZoneName: 'shortOffset' }).formatToParts(new Date()).find(x => x.type === 'timeZoneName'); return p ? p.value.replace('GMT', 'UTC') : ''; } catch (e) { return ''; } };
 
   // ---------- durum ----------
   let lang = LS.get('lang', 'tr');
@@ -149,6 +155,7 @@
   const srcBadge = s => `<span class="srcb ${s === 'model' ? 'm' : ''}">${esc(srcName(s))}</span>`;
 
   const XK = ['hf', 'sk'];                       // devre ve skor kuponlari (ajanlarin ortak karari)
+  const SYSK = ['sys', 'hfs'];                   // sistem kuponlari: klasik (3/5) ve IY/MS sistem (5/8)
   const xLab = k => (/^HF/.test(k) ? t('xk_hf') + ': ' + k.slice(2) : /^IY/.test(k) ? t('xk_iy') + ': ' + k.slice(2) : /^2Y/.test(k) ? t('xk_y2') + ': ' + k.slice(2) : /^S\d/.test(k) ? t('xk_sk') + ': ' + k.slice(1) : null);
   function mkLabel(k, m, line) {
     if (xLab(k)) return xLab(k);
@@ -271,7 +278,7 @@
     $('foot').innerHTML = `
       <div class="fl"><span class="age">18+</span><span>${t('foot_18')}</span></div>
       <div class="fl"><span>${t('foot_disc')}</span></div>
-      <div class="fl"><a href="#/kurallar">${t('rules')}</a><a href="#/gizlilik">${t('privacy')}</a><span>${t('updated')}: ${up}</span><span>${t('tznote')}</span><span>© ${new Date().getFullYear()} Analiz365</span></div>`;
+      <div class="fl"><a href="#/kurallar">${t('rules')}</a><a href="#/gizlilik">${t('privacy')}</a><span>${t('updated')}: ${up}</span><label class="tzsel">🕒 ${t('tz_l')} <select id="tzsel" aria-label="${esc(t('tz_l'))}"><option value="local"${TZ === TZ_LOCAL && LS.get('tz', 'local') !== 'asb' ? ' selected' : ''}>${t('tz_local')} (${tzOff(TZ_LOCAL)})</option><option value="asb"${LS.get('tz', 'local') === 'asb' ? ' selected' : ''}>${t('tz_asb')} (UTC+5)</option></select></label><span>© ${new Date().getFullYear()} Analiz365</span></div>`;
     document.documentElement.lang = lang;
     $('lang').value = lang;
     $('slip').setAttribute('aria-label', t('coupon'));
@@ -348,12 +355,12 @@
   }
   // own: 'all' (ortak kupon) ya da bir analizcinin kimligi (kendi kuponu)
   const kPicks = (c, kind, own) => {
-    if (XK.includes(kind)) return own && own !== 'all' ? [] : ((c || {})[kind] || {}).picks || [];
+    if (XK.includes(kind) || kind === 'hfs') return own && own !== 'all' ? [] : ((c || {})[kind] || {}).picks || [];
     if (own && own !== 'all') { const o = (c.ac || {})[own] || {}; return (kind === 'sys' ? (o.sys || {}).picks : o[kind === 'hi' || kind === 'big' ? kind : 'main']) || []; }
     if (kind === 'big') return ((c || {}).big || {}).picks || [];
     return (kind === 'hi' ? (hiOf(c) || {}).picks : kind === 'sys' ? (sysOf(c) || {}).picks : c.picks) || [];
   };
-  const sysK = (c, own) => (own && own !== 'all' ? (((c.ac || {})[own] || {}).sys || {}).k : (c.sys || {}).k) || 3;
+  const sysK = (c, own, mk) => (mk === 'hfs' ? (c.hfs || {}).k || 5 : (own && own !== 'all' ? (((c.ac || {})[own] || {}).sys || {}).k : (c.sys || {}).k) || 3);
   function molRow(pk, score) {
     const lg = LG[pk.lg] ? esc(ln(pk.lg)) : '';
     const tag = MATCH[pk.id] ? 'a' : 'div', href = MATCH[pk.id] ? ` href="#/mac/${pk.id}"` : '';
@@ -376,6 +383,7 @@
       ${c.picks.some(pkLive) ? `<button class="btn" data-act="tipadd" data-cdate="${c.date}">${t('tipc_add')}</button>` : ''}
       ${hiOf(c) ? `<button type="button" class="tipx" data-mk="hi" data-mgo="1"><span>🔥 ${t('m_k_hi')} · ${hiOf(c).picks.length} ${t('selections')}</span><b class="num">${prodO(hiOf(c).picks).toFixed(2)}</b></button>` : ''}
       ${sysOf(c) ? `<button type="button" class="tipx" data-mk="sys" data-mgo="1"><span>🎯 ${t('m_k_sys')}</span><b class="num">${sysOf(c).k}/${sysOf(c).picks.length}</b></button>` : ''}
+      ${kPicks(c, 'hfs').length ? `<button type="button" class="tipx" data-mk="sys" data-mgo="1"><span>🧩 ${t('m_k_hfs')}</span><b class="num">${sysK(c, 'all', 'hfs')}/${kPicks(c, 'hfs').length}</b></button>` : ''}
       ${[['hf', '🧩'], ['sk', '🔢']].map(([x, ic]) => { const pk = kPicks(c, x); return pk.length ? `<button type="button" class="tipx" data-mk="main" data-mgo="1"><span>${ic} ${t('m_k_' + x)} · ${pk.length} ${t('selections')}</span><b class="num">${prodO(pk).toFixed(2)}</b></button>` : ''; }).join('')}
       <a class="btn ghost" href="#/mollamyrat">${t('m_track')} →</a></div></div>`;
   }
@@ -390,13 +398,13 @@
   function akSt(c, mk, own) {
     const pk = kPicks(c, mk, own);
     if (!pk.length) return null;
-    return mk === 'sys' ? sysInfo({ k: sysK(c, own), picks: pk }).st : cpnState(pk).st;
+    return SYSK.includes(mk) ? sysInfo({ k: sysK(c, own, mk), picks: pk }).st : cpnState(pk).st;
   }
   function akCard(c, mk, own, ttl) {
     const pk = kPicks(c, mk, own), joint = own === 'all', r = joint ? null : (D.agacc || {})[own];
     const who = `${agAv(own)}<div class="akw"><b>${joint ? ttl || t('ac_joint') : t('ag_' + own)}</b><small>${t(joint ? 'ak_joint_s' : 'ag_' + own + '_r')}${r && r[0] ? ` · <span class="num">${pct(r[1] / r[0])}%</span>` : ''}</small></div>`;
     if (!pk.length) return `<div class="card akc none"><div class="akh">${who}</div><div class="akn">${t('ak_none')}</div></div>`;
-    const at = `data-cdate="${c.date}" data-ck="${mk}" data-own="${own}"`, tot = prodO(pk), sy = mk === 'sys' ? sysInfo({ k: sysK(c, own), picks: pk }) : null;
+    const at = `data-cdate="${c.date}" data-ck="${mk}" data-own="${own}"`, tot = prodO(pk), sy = SYSK.includes(mk) ? sysInfo({ k: sysK(c, own, mk), picks: pk }) : null;
     const st = sy ? sy.st : cpnState(pk).st;
     const foot = sy
       ? `<div><small>${sy.k}/${sy.N} · ${sy.cols} ${t('sys_cols')}</small><b class="num">${money(MIN_STAKE)}</b></div><div><small>${t(sy.ok + sy.no ? 'sys_wcols' : 'max_win')}</small><b class="num win">${sy.ok + sy.no ? sy.wcols + '/' + sy.cols + ' · ' + money(Math.min(sy.win, MAX_WIN)) : money(Math.min(sy.max, MAX_WIN))}</b></div>`
@@ -410,7 +418,8 @@
     const mk = ['main', 'hi', 'sys', 'big'].includes(flt.mk) ? flt.mk : 'main', owners = ['all'].concat(AGENTS.map(x => x[0]));
     const TAB = [['main', '★', 'ak_h_main'], ['hi', '🔥', 'ak_h_hi'], ['sys', '🎯', 'ak_h_sys'], ['big', '💎', 'ak_h_big']];
     // her donemin kartlari: analizci kuponlari + (Banko sekmesinde) skor ve IY/MS kuponlari
-    const groups = per.map(c => ({ c, cards: owners.map(o => [mk, o]).concat(mk === 'main' ? XK.map(x => [x, 'all']) : [])
+    // Sistem sekmesinde ortak IY/MS sistem kuponu (5/8) da yer alir
+    const groups = per.map(c => ({ c, cards: owners.map(o => [mk, o]).concat(mk === 'main' ? XK.map(x => [x, 'all']) : mk === 'sys' ? [['hfs', 'all']] : [])
       .map(([k, o]) => ({ k, o, st: akSt(c, k, o) })).filter(x => x.st) }));
     const nx = mk === 'main' && nextC();
     const nOpen = groups.reduce((a, g) => a + g.cards.filter(x => x.st === 'pending').length, 0) + (nx ? 1 : 0);
@@ -524,13 +533,13 @@
   }
   function shareMolla(date, kind, own) {
     const c0 = cByDate(date) || MOLLA.coupons[0]; if (!c0) return;
-    const mk = ['hi', 'sys', 'big'].concat(XK).includes(kind) ? kind : 'main', pk = kPicks(c0, mk, own); if (!pk.length) return;
+    const mk = ['hi', 'sys', 'big', 'hfs'].concat(XK).includes(kind) ? kind : 'main', pk = kPicks(c0, mk, own); if (!pk.length) return;
     const who = own && own !== 'all' ? t('ag_' + own) : t('ac_joint');
     const rows = x => ({ teams: pkName(x, 'h') + ' – ' + pkName(x, 'a'), sub: mkLabel(x.k) + ' · ' + shortDate(x.d) + ' ' + timeOf(x.d), o: x.o.toFixed(2), mark: mark(pkOk(x)) });
     const sels = pk.map(x => ({ m: x.id, k: x.k })), head = '★ ' + t('tipc_title') + ' · ' + who;
-    if (mk === 'sys') {
-      const S = sysInfo({ k: sysK(c0, own), picks: pk });
-      return shareCoupon(head + ' · ' + t('m_k_sys') + ' ' + S.k + '/' + S.N, cRange(c0) + ' · ' + fmt(t('sys_rule'), { k: S.k, n: S.N }), pk.map(rows),
+    if (SYSK.includes(mk)) {
+      const S = sysInfo({ k: sysK(c0, own, mk), picks: pk });
+      return shareCoupon(head + ' · ' + t('m_k_' + mk) + ' ' + S.k + '/' + S.N, cRange(c0) + ' · ' + fmt(t('sys_rule'), { k: S.k, n: S.N }), pk.map(rows),
         { tot: S.k + '/' + S.N + ' · ' + S.cols + ' ' + t('sys_cols'), stake: money(MIN_STAKE), win: money(Math.min(S.max, MAX_WIN)) }, sels);
     }
     const tot = prodO(pk);
@@ -858,7 +867,7 @@
         <div class="mtime num">${wd === true ? `<span class="md">${shortDate(m.d)}</span>` : ''}${timeOf(m.d)}</div>
         <div class="mteams"><div class="mlg">${badge(m.lg)}<span>${esc(ln(m.lg))}</span></div><div class="tm">${logo(m.h)}<span>${esc(tn(m.h))}</span>${favMark(m.h)}</div><div class="tm">${logo(m.a)}<span>${esc(tn(m.a))}</span>${favMark(m.a)}</div>
           ${p.lh != null ? `<div class="xgr num" title="${esc(t('xg_tip'))}">xG <b>${x2(p.lh)}–${x2(p.la)}</b></div>` : ''}
-          ${c && (c.srv || c.n >= 2) ? `<div class="xgr agh">${t('ag_cons')}: <b>${esc(mkLabel(c.k, m))}</b> · ${m.o[c.k].toFixed(2)} · ${c.n}/5</div>` : ''}</div>
+          ${c && (c.srv || c.n >= 2) ? `<div class="xgr agh">${t('ag_cons')}: <b>${esc(mkLabel(c.k, m))}</b> · ${m.o[c.k].toFixed(2)} · <span title="${esc(fmt(t('ag_votes_t'), { v: c.n }))}">${c.n}/5</span></div>` : ''}</div>
       </a>
       <div class="og c3 ms">${ob(m, '1')}${ob(m, 'X')}${ob(m, '2')}</div>
       <div class="og c2 ou">${ob(m, 'U2.5', t('under'))}${ob(m, 'O2.5', t('over'))}</div>
@@ -930,7 +939,7 @@
       <div>${pbar(p)}<div class="anl3"><span>1</span>${bb ? '' : '<span>X</span>'}<span>2</span></div></div>
       <div class="anst">${stats}</div>
       ${agTiles(m)}
-      ${c && (c.srv || c.n >= 2) ? `<div class="anf"><span class="pill">${t('ag_cons')}</span><b>${esc(mkLabel(c.k, m))}</b><span class="num od${oSrc(m, c.k) === 'model' ? ' mdl' : ''}" title="${esc(srcTip(m, c.k))}">${m.o[c.k].toFixed(2)}</span><span class="num vt">${c.n}/5</span></div>` : ''}
+      ${c && (c.srv || c.n >= 2) ? `<div class="anf"><span class="pill">${t('ag_cons')}</span><b>${esc(mkLabel(c.k, m))}</b><span class="num od${oSrc(m, c.k) === 'model' ? ' mdl' : ''}" title="${esc(srcTip(m, c.k))}">${m.o[c.k].toFixed(2)}</span><span class="num vt" title="${esc(fmt(t('ag_votes_t'), { v: c.n }))}">${c.n}/5</span></div>` : ''}
     </a>`;
   }
   function viewAnalysis() {
@@ -1027,12 +1036,13 @@
     const ks = AX_KEYS.filter(k => o[k] && o[k] >= 1.3), voters = AX_VOTE.filter(a => A[a]);
     const agw = D.agw || {}, wt = a => agw[a] || 1, twt = voters.reduce((s, a) => s + wt(a), 0) || 1;
     const cons = k => voters.reduce((s, a) => s + wt(a) * A[a].v[k], 0) / twt;   // sunucudaki heyet agirliklariyla
-    voters.forEach(a => { const x = A[a]; x.k = ag[a] && o[ag[a][0]] ? ag[a][0] : ks.slice().sort((p, q) => x.v[q] - x.v[p])[0]; });
+    // sunucu ajanin secimini bos birakmissa (en iyi secimi bile %50 alti) ajan cekimserdir; eski veride yerelde secilir (%50+ sartiyla)
+    voters.forEach(a => { const x = A[a]; x.k = ag[a] ? (o[ag[a][0]] ? ag[a][0] : null) : (ks.filter(k => x.v[k] >= .5).sort((p, q) => x.v[q] - x.v[p])[0] || null); });
     let vr = null;
     const risky = { src: m.src === 'model', fr: m.lg === 'fifa.friendly', few: voters.length < 3 };
     if (voters.length >= 3 && m.src !== 'model' && ks.length) {
       const rows = ks.map(k => ({ k, c: cons(k), o: o[k], ev: cons(k) * o[k] - 1 })).sort((a, b) => b.ev - a.ev);
-      const ok = rows.filter(r => r.c >= 0.4), k = ag.vr && o[ag.vr[0]] ? ag.vr[0] : (ok[0] || {}).k;
+      const ok = rows.filter(r => r.c >= 0.4), k = ag.vr && o[ag.vr[0]] ? ag.vr[0] : (ok[0] || {}).k;   // negatif getiride rapor yine en az kayipli secimi anlatir, ama secim yapilmaz (axVrPick)
       if (k) vr = { rows: ok, k, r: rows.find(r => r.k === k) };
     }
     return { A, voters, cons, ks, vr, real, risky };
@@ -1042,6 +1052,7 @@
   function axConc(m, x, k) {                          // her ajanin yorumunun ortak sonuc kismi
     const H = ts(m.h), Aw = ts(m.a), p = x.v[k], tot = x.lam[0] + x.lam[1];
     let s = fmt(t('ax_conc'), { h: H, x: f2(x.lam[0]), a: Aw, y: f2(x.lam[1]) }) + ' ';
+    if (!k) return s + t('ax_nopick');                // hicbir secenek %50'yi gecmiyor: cekimser
     const ty = axKType(k);
     if (ty === 'ou') s += fmt(t('ax_k_ou'), { s: f2(tot), k: mkLabel(k, m), p: pct(p) });
     else if (ty === 'kg') s += fmt(t('ax_k_kg'), { b: pct(x.v.KGV), k: mkLabel(k, m), p: pct(p) });
@@ -1079,6 +1090,7 @@
     out.push(fmt(t(o25 >= .5 ? 'ax_v_goal_hi' : 'ax_v_goal_lo'), { lo: f2(Math.min(...tots)), hi: f2(Math.max(...tots)), x: f2(avg), p: pct(o25 >= .5 ? o25 : 1 - o25), b: pct(X.cons('KGV')) }));
     if (c) {
       const agree = X.voters.filter(a => A[a].k === c.k), diff = X.voters.filter(a => A[a].k && A[a].k !== c.k);
+      if (c.srv) out.push(fmt(t('ax_v_votes'), { v: c.n, k: mkLabel(c.k, m) }));
       if (agree.length >= 2) out.push(fmt(t('ax_v_agree'), { n: agree.map(nm).join(', '), k: mkLabel(c.k, m), p: pct(X.cons(c.k)) }));
       diff.forEach(a => out.push(fmt(t('ax_v_diff'), { n: nm(a), k: mkLabel(A[a].k, m), p: pct(A[a].v[A[a].k]), w: t('ax_why_' + a) })));
     }
@@ -1114,14 +1126,14 @@
 
     // 2) yan yana karsilastirma
     const row = a => { const x = A[a], v = x.v, mx = Math.max(v['1'], v.X, v['2']), cl = k => (v[k] === mx ? ' class="axhi"' : '');
-      return `<tr><td class="tn"><button type="button" class="axj" data-axj="${a}">${agAv(a, false, AX_IC[a])}<span>${esc(t('ag_' + a))}</span></button></td><td class="num">${f2(x.lam[0])}–${f2(x.lam[1])}</td><td${cl('1')}>${pct(v['1'])}</td><td${cl('X')}>${pct(v.X)}</td><td${cl('2')}>${pct(v['2'])}</td><td>${pct(v['O2.5'])}</td><td>${pct(v.KGV)}</td><td class="tn axk${c && x.k === c.k ? ' agr' : ''}"><b>${esc(shortLab(x.k, m))}</b> <small class="mut">%${pct(v[x.k])}</small></td></tr>`; };
+      return `<tr><td class="tn"><button type="button" class="axj" data-axj="${a}">${agAv(a, false, AX_IC[a])}<span>${esc(t('ag_' + a))}</span></button></td><td class="num">${f2(x.lam[0])}–${f2(x.lam[1])}</td><td${cl('1')}>${pct(v['1'])}</td><td${cl('X')}>${pct(v.X)}</td><td${cl('2')}>${pct(v['2'])}</td><td>${pct(v['O2.5'])}</td><td>${pct(v.KGV)}</td><td class="tn axk${c && x.k && x.k === c.k ? ' agr' : ''}">${x.k ? `<b>${esc(shortLab(x.k, m))}</b> <small class="mut">%${pct(v[x.k])}</small>` : `<span class="mut">${t('ag_pass')}</span>`}</td></tr>`; };
     const lamAvg = i => X.voters.reduce((s, a) => s + A[a].lam[i], 0) / X.voters.length;
     html += `<div class="card sec"><h2>⚖️ ${t('ax_cmp')}</h2><p class="note" style="margin:-6px 0 10px">${t('ax_cmp_d')}</p>
       <div class="tblwrap"><table class="tbl axt"><thead><tr><th class="tn">${t('an_analyst')}</th><th>${t('xg')}</th><th>1 %</th><th>X %</th><th>2 %</th><th>${t('over')} 2.5</th><th>${t('kg_s')} ${t('yes')}</th><th class="tn">${t('ax_pick')}</th></tr></thead><tbody>
       ${X.voters.map(row).join('')}
-      <tr class="axavg"><td class="tn"><i class="av a-all">★</i><span>${t('ax_avg')}</span></td><td class="num">${f2(lamAvg(0))}–${f2(lamAvg(1))}</td><td>${pct(X.cons('1'))}</td><td>${pct(X.cons('X'))}</td><td>${pct(X.cons('2'))}</td><td>${pct(X.cons('O2.5'))}</td><td>${pct(X.cons('KGV'))}</td><td class="tn axk">${c ? `<b>${esc(shortLab(c.k, m))}</b> <small class="mut">${c.n}/5</small>` : '–'}</td></tr>
+      <tr class="axavg"><td class="tn"><i class="av a-all">★</i><span>${t('ax_avg')}</span></td><td class="num">${f2(lamAvg(0))}–${f2(lamAvg(1))}</td><td>${pct(X.cons('1'))}</td><td>${pct(X.cons('X'))}</td><td>${pct(X.cons('2'))}</td><td>${pct(X.cons('O2.5'))}</td><td>${pct(X.cons('KGV'))}</td><td class="tn axk">${c ? `<b>${esc(shortLab(c.k, m))}</b> <small class="mut" title="${esc(fmt(t('ag_votes_t'), { v: c.n }))}">${c.n}/5</small>` : '–'}</td></tr>
       </tbody></table></div>
-      ${X.vr ? `<p class="note">${agAv('vr', false)} <b style="color:var(--tx)">${esc(t('ag_vr'))}:</b> ${esc(mkLabel(X.vr.k, m))} · ${t('ag_ev')} ${(X.vr.r.ev >= 0 ? '+' : '') + Math.round(X.vr.r.ev * 100)}%</p>` : ''}</div>`;
+      ${X.vr ? `<p class="note">${agAv('vr', false)} <b style="color:var(--tx)">${esc(t('ag_vr'))}:</b> ${X.vr.r.ev >= 0 ? `${esc(mkLabel(X.vr.k, m))} · ${t('ag_ev')} +${Math.round(X.vr.r.ev * 100)}%` : esc(t('ag_vr_pass'))}</p>` : ''}</div>`;
 
     html += `<h2 class="dayhead">🤖 ${t('ax_agents')} <small class="mut">${t('ax_agents_d')}</small></h2>`;
 
@@ -1209,7 +1221,7 @@
       const st = [t('ax_vr_1'), t('ax_vr_2'), t('ax_vr_3')];
       let extra = '', say, pk = null, pvs = '';
       if (X.vr) {
-        const r = X.vr.r; pk = r.k; pvs = (r.ev >= 0 ? '+' : '') + Math.round(r.ev * 100) + '%';
+        const r = X.vr.r; pk = r.ev >= 0 ? r.k : null; pvs = r.ev >= 0 ? '+' + Math.round(r.ev * 100) + '%' : '';   // negatif getiride pas
         extra = `<div class="tblwrap"><table class="tbl axt axvt"><thead><tr><th class="tn">${t('ax_opt')}</th><th>${t('ax_cp')}</th><th>${t('ax_fair')}</th><th>${t('ax_site')}</th><th>${t('ag_ev')}</th></tr></thead><tbody>
           ${X.vr.rows.slice(0, 6).map(q => `<tr class="${q.k === r.k ? 'hl' : ''}"><td class="tn">${esc(mkLabel(q.k, m))}</td><td>%${pct(q.c)}</td><td class="num">${(1 / q.c).toFixed(2)}</td><td class="num"><b>${q.o.toFixed(2)}</b></td><td class="num ${q.ev >= 0 ? 'axpos' : 'axneg'}">${(q.ev >= 0 ? '+' : '') + Math.round(q.ev * 100)}%</td></tr>`).join('')}
           </tbody></table></div>`;
@@ -2005,7 +2017,8 @@
     return `<a class="lrow" href="#/mac/${m.id}">${inner}</a>`;
   }
   function liveBox(sport) {
-    const cs = liveCands(sport).filter(m => sport === 'bb' || lgOk(m)).sort((a, b) => isFavM(b) - isFavM(a) || byDate(a, b));
+    const done = m => (LIVE[m.id] && LIVE[m.id].s === 'post' ? 1 : 0);      // biten maclar sona: once oynanan maclar gorunsun
+    const cs = liveCands(sport).filter(m => sport === 'bb' || lgOk(m)).sort((a, b) => done(a) - done(b) || isFavM(b) - isFavM(a) || byDate(a, b));
     if (!cs.length) return '';
     const n = cs.filter(m => !(LIVE[m.id] && LIVE[m.id].s === 'post')).length;
     const LIM = 6, show = flt.lvall ? cs : cs.slice(0, LIM);
@@ -2046,7 +2059,7 @@
     if (coupons.some(c => c.status === 'pending' && c.sels.some(x => x.m === id))) return true;
     const c0 = MOLLA.coupons[0], nx = MOLLA.next;
     if (nx && (nx.picks || []).some(x => x.id === id)) return true;
-    return !!(c0 && ['main', 'hi', 'sys', 'big'].concat(XK).some(k => kPicks(c0, k).some(x => x.id === id)));
+    return !!(c0 && ['main', 'hi', 'sys', 'big', 'hfs'].concat(XK).some(k => kPicks(c0, k).some(x => x.id === id)));
   }
   function setLive(id, v) {
     const prev = LIVE[id];
@@ -2322,6 +2335,10 @@
   $('slipbar').addEventListener('click', () => document.body.classList.add('slipopen'));
   $('scrim').addEventListener('click', () => document.body.classList.remove('slipopen'));
   $('lang').addEventListener('change', e => { lang = e.target.value; LS.set('lang', lang); render(); });
+  $('foot').addEventListener('change', e => {
+    if (e.target.id !== 'tzsel') return;
+    LS.set('tz', e.target.value); TZ = e.target.value === 'asb' ? TZ_ASB : TZ_LOCAL; render();
+  });
   const stack = [location.hash || '#/'];
   window.addEventListener('hashchange', () => {
     const h = location.hash || '#/';
