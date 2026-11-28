@@ -1069,6 +1069,7 @@ MOLLA_DAYS = 2                 # kupon kac gunu kapsar / kac gunde bir yenilenir
 TIP_KEYS = ["1", "X", "2", "1X", "X2", "O2.5", "U2.5", "KGV", "KGY"]
 MOLLA_HI = 20.0                # surpriz kuponun en dusuk toplam orani
 MOLLA_BIG = 35.0               # yuksek oran kuponunun en dusuk toplam orani
+MOLLA_CV = 3                   # kupon kurallari surumu (degisince yeni donem hemen acilir)
 MOLLA_SYS = (3, 5)             # sistem kuponu: 5 macin en az 3'u (3'lu kolonlar)
 
 
@@ -2017,7 +2018,9 @@ def molla(matches, done_by_id, src_team, use):
     # ayni gun icinde de: kaybeden kuponun yerine hemen yenisi gelir (anahtar: gun + harf, or. 2026-11-17b)
     busted = False          # kaybeden kuponlar artik donem icinde yerinde yenilenir (asagida 2-)
     due = not keys or busted or (day0 - datetime.strptime(keys[-1][:10], "%Y-%m-%d")).days >= MOLLA_DAYS
-    if keys and ("ac" not in state["coupons"][keys[-1]] or state["coupons"][keys[-1]].get("cv") != 2):
+    # kural surumu degisince (cv) guncel donem beklenmeden yeni kurallarla yeni donem acilir; eski donemin bekleyen
+    # kuponlari sonuclanana kadar yerinde kalir. cv 3: banko cifte sanssiz, IY/MS cesitli, yeni skor kurali.
+    if keys and ("ac" not in state["coupons"][keys[-1]] or state["coupons"][keys[-1]].get("cv", 0) < MOLLA_CV):
         due = True                                   # tutarli karar zincirine gecis: guncel kupon bir kez yeniden kurulur
 
     def penalty(m):
@@ -2175,7 +2178,7 @@ def molla(matches, done_by_id, src_team, use):
                 cpn["sys"] = {"k": need, "picks": [arec(x) for x in by_date(sy)]}
             cpn.update(extra_coupons(pool, base, taken_of(cpn)))
             cpn["xk"] = 2
-            cpn["cv"] = 2
+            cpn["cv"] = MOLLA_CV
             key = today
             n_ = 0
             while key in state["coupons"]:                # ayni gun ikinci kupon: 2026-11-17b, c ...
