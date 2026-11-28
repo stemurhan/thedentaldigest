@@ -339,6 +339,116 @@ def apf_get(path, ttl=3 * 3600):
         return (c or {}).get("d")
 
 
+# ---- Gercek sakat / cezali listesi (FotMob) ----------------------------------------------------
+# FotMob mac ozeti yaklasan maclar icin "unavailable" listesi verir: sakat / cezali, beklenen donus ve
+# oyuncunun piyasa degeri. Anahtar gerektirmez. Piyasa degeri, eksigin takim icin agirligini belirler
+# (ilk 11 ortalamasina gore 0.3 - 1.5): yedek oyuncunun yoklugu as oyuncununki kadar etkilemez.
+FM_BASE = "https://www.fotmob.com/api/data/"
+FM_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+FM_HOURS = 60                          # bu kadar saat icindeki maclar
+FM_MAX = 300                           # en fazla mac ozeti (yakin ve ust lig maclari once)
+FM_STAT = {"n": 0, "err": "", "fx": 0, "pick": 0}
+_fm_block = [False]
+
+
+def fm_get(path, ttl):
+    """FotMob istegi (onbellekli). Erisim reddedilirse (403/429) bu calismada bir daha denenmez."""
+    key = re.sub(r"[^a-z0-9_.-]+", "_", path.lower())
+    cpath = os.path.join(CACHE, "fm", key + ".json")
+    c = cache_read(cpath)
+    if c and time.time() - c.get("ts", 0) < ttl:
+        return c.get("d")
+    if _fm_block[0]:
+        return (c or {}).get("d")
+    try:
+        req = urllib.request.Request(FM_BASE + path, headers={"User-Agent": FM_UA, "Accept": "application/json",
+                                                               "Accept-Encoding": "gzip", "Referer": "https://www.fotmob.com/"})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            raw = r.read()
+            if r.headers.get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            d = json.loads(raw.decode("utf-8"))
+            cache_write(cpath, {"ts": time.time(), "d": d})
+            return d
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 429):
+            _fm_block[0] = True
+            FM_STAT["err"] = f"FotMob erisimi reddetti ({e.code})"
+        return (c or {}).get("d")
+    except Exception as ex:
+        FM_STAT["err"] = "FotMob: " + str(ex)[:120]
+        return (c or {}).get("d")
+
+
+def load_fm_absences(upcoming):
+    """{mac_id: {"h": [{"n", "w": inj|sus|doubt, "r", "k"}], "a": [...], "s": "fm"}} - verisi alinan maclar."""
+    out = {}
+    want = [m for m in upcoming if NOW - timedelta(hours=1) <= m["dt"] <= NOW + timedelta(hours=FM_HOURS)]
+    rows = []
+    days = sorted({(m["dt"] + timedelta(hours=dh)).strftime("%Y%m%d") for m in want for dh in (-3, 0, 3)})
+    seen = set()
+    for day in days:
+        d = fm_get(f"matches?date={day}", ttl=4 * 3600) or {}
+        for lg_ in d.get("leagues") or []:
+            for x in lg_.get("matches") or []:
+                st_ = x.get("status") or {}
+                if x.get("id") in seen or st_.get("cancelled"):
+                    continue
+                seen.add(x.get("id"))
+                try:
+                    ts_ = datetime.strptime(st_.get("utcTime", "")[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc).timestamp()
+                except ValueError:
+                    continue
+                rows.append((ts_, (x.get("home") or {}).get("name") or "", (x.get("away") or {}).get("name") or "", x["id"]))
+    pick = {}
+    for m in want:
+        t0, best = m["dt"].timestamp(), None
+        hn = [m["h"]["n"], m["h"].get("s") or m["h"]["n"]]
+        an = [m["a"]["n"], m["a"].get("s") or m["a"]["n"]]
+        for ts_, h_, a_, fid in rows:
+            if abs(ts_ - t0) > 5400:
+                continue
+            sc = min(max(name_sim(x, h_) for x in hn), max(name_sim(x, a_) for x in an))
+            if sc >= 0.6 and (best is None or sc > best[0]):
+                best = (sc, fid)
+        if best:
+            pick[m["id"]] = (best[1], LGMAP.get(m["lg"], {}).get("tier", 2), m["dt"])
+    FM_STAT["fx"], FM_STAT["pick"] = len(rows), len(pick)
+    order = sorted(pick, key=lambda i: (pick[i][1], pick[i][2]))[:FM_MAX]
+
+    def one(mid):
+        # mac yaklastikca daha sik yenilenir: 24 saatten yakin maclar 2, digerleri 4 saatte bir
+        near = pick[mid][2] - NOW < timedelta(hours=24)
+        return mid, fm_get(f"matchDetails?matchId={pick[mid][0]}", ttl=(2 if near else 4) * 3600 - 300)
+
+    for mid, d in pmap(one, order, "eksik", threads=4):
+        lu = ((d or {}).get("content") or {}).get("lineup") or {}
+        if not lu.get("homeTeam") or not lu.get("awayTeam"):
+            continue
+        side = {"h": None, "a": None, "s": "fm"}
+        for k_, tk in (("h", "homeTeam"), ("a", "awayTeam")):
+            t_ = lu[tk]
+            if "unavailable" not in t_:              # FotMob bu takimin eksiklerini izlemiyor: bilinmiyor (kadro tahmini kalir)
+                continue
+            side[k_] = []
+            starters = t_.get("starters") or []
+            avg = (t_.get("totalStarterMarketValue") or 0) / max(len(starters), 1) or None
+            for x in t_.get("unavailable") or []:
+                un = x.get("unavailability") or {}
+                typ, ret = (un.get("type") or "").lower(), un.get("expectedReturn") or ""
+                nm = fx(x.get("name") or "")
+                if not nm:
+                    continue
+                w = "sus" if "suspen" in typ else "doubt" if re.search(r"doubt|back in training|questionable", ret + " " + typ, re.I) else "inj"
+                mv = x.get("marketValue") or 0
+                kw = round(min(1.5, max(0.3, mv / avg)), 2) if avg and mv else 1.0
+                side[k_].append({"n": nm, "w": w, "r": ret[:40], "k": kw})
+        if side["h"] is not None or side["a"] is not None:
+            out[mid] = side
+    FM_STAT["n"] = len(out)
+    return out
+
+
 # ---- Gercek sakat / cezali listesi (API-Football) ------------------------------------------
 # ESPN futbolda sakatlik vermez; anahtar (API_FOOTBALL_KEY) varsa yaklasan maclarin resmi eksik listesi
 # alinir: sakat, cezali (kirmizi kart / kart cezasi) ve suphe. Ucretsiz plan gunde 100 istek verir:
@@ -1491,9 +1601,11 @@ def fenasi_lambdas(S, avg_h, avg_a, hid, aid, by_team, lg, dt, sqh, sqa):
         lh, la = lh * 0.97, la * 1.02
     if rest[1] is not None and rest[1] < 4:
         la, lh = la * 0.97, lh * 1.02
-    out_n = [len((sqh or {}).get("out") or []), len((sqa or {}).get("out") or [])]
-    lh *= max(0.85, 1 - 0.04 * out_n[0]) * min(1.08, 1 + 0.015 * out_n[1])   # eksik oyuncu: kendi golu azalir,
-    la *= max(0.85, 1 - 0.04 * out_n[1]) * min(1.08, 1 + 0.015 * out_n[0])   # rakibin beklentisi biraz artar
+    # eksik sayisi: resmi listede oyuncunun takimdaki agirligi (k, piyasa degerine gore) kullanilir
+    wn = [sum(x.get("k", 1) for x in (sq_ or {}).get("out") or []) for sq_ in (sqh, sqa)]
+    out_n = [len((sq_ or {}).get("out") or []) for sq_ in (sqh, sqa)]       # sayfada gosterilen eksik sayisi
+    lh *= max(0.85, 1 - 0.04 * wn[0]) * min(1.08, 1 + 0.015 * wn[1])   # eksik oyuncu: kendi golu azalir,
+    la *= max(0.85, 1 - 0.04 * wn[1]) * min(1.08, 1 + 0.015 * wn[0])   # rakibin beklentisi biraz artar
     return _clampl(lh), _clampl(la), rest, out_n
 
 
@@ -2846,8 +2958,14 @@ def main():
     rosters = dict(pmap(load_roster, rjobs, "oyuncu"))
 
     # gercek eksik listesi (API-Football); tahmin istekleri kullanilmadigi icin artik cagrilmiyor (kotayi harciyordu)
-    absn = load_apf_absences(upcoming)
-    print(f"   Eksik listesi: {APF_STAT['n']} mac API-Football" + (f" (hata: {APF_STAT['err']})" if APF_STAT["err"] else ""), flush=True)
+    absn = load_fm_absences(upcoming)            # once FotMob (anahtarsiz); bulunamayanlar icin API-Football (anahtar varsa)
+    rest_ = [m for m in upcoming if m["id"] not in absn]
+    if APF_KEY and rest_:
+        for k_, v_ in load_apf_absences(rest_).items():
+            v_["s"] = "apf"
+            absn[k_] = v_
+    print(f"   Eksik listesi: FotMob {FM_STAT['n']} mac (eslesen {FM_STAT['pick']}/{FM_STAT['fx']})"
+          + (f" [{FM_STAT['err']}]" if FM_STAT["err"] else "") + f", API-Football {APF_STAT['n']} mac", flush=True)
 
     print("4/6 Tahminler ve analiz...", flush=True)
     if os.getenv("ANALIZ_TUNE"):                     # gelistirme: Fenasi ayarlarini geriye donuk testle karsilastir
@@ -2981,11 +3099,11 @@ def main():
         sqh, sqa = (squad(hid, lid), squad(aid, lid)) if detail else (None, None)
         ab = absn.get(m["id"])
         if ab is not None:                           # resmi eksik listesi: kadro tahmininin yerine gecer
-            for sq_, k_ in ((sqh, "h"), (sqa, "a")):
-                if sq_:
+            for sq_, k_ in ((sqh, "h"), (sqa, "a")):  # izlenmeyen takimda (None) kadro tahmini kalir
+                if sq_ and ab[k_] is not None:
                     sq_["out"] = ab[k_]
-            real_ = lambda L: {"out": [x for x in L if x["w"] != "doubt"]}     # suphe modele katilmaz
-            fnl = fenasi_lambdas(fstr[lid], avg_h, avg_a, hid, aid, by_team, lg, m["dt"], real_(ab["h"]), real_(ab["a"]))
+            real_ = lambda L, sq_: {"out": [x for x in L if x["w"] != "doubt"]} if L is not None else sq_   # suphe modele katilmaz
+            fnl = fenasi_lambdas(fstr[lid], avg_h, avg_a, hid, aid, by_team, lg, m["dt"], real_(ab["h"], sqh), real_(ab["a"], sqa))
         else:
             fnl = fenasi_lambdas(fstr[lid], avg_h, avg_a, hid, aid, by_team, lg, m["dt"], sqh, sqa)
         rec = {"id": m["id"], "lg": lid, "d": m["d"], "h": hid, "a": aid, "v": m["v"],
@@ -3183,7 +3301,7 @@ def main():
             "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb, "since": STATS_FROM,
             "agacc": agacc, "agaccbb": agaccbb, "agents": AGENTS,
             "agbt": agbt, "agw": AG_W,
-            "inj": dict(APF_STAT, src="apf" if APF_STAT["n"] else "lineup")}
+            "inj": {"fm": FM_STAT, "apf": APF_STAT, "n": len([m for m in matches if m.get("ab")])}}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

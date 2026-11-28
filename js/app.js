@@ -1107,7 +1107,9 @@
 
   // ---------- mac detay: Analiz sekmesi (sade gorunum) ----------
   // Ozet karar -> karsilastirma -> eksikler -> ajanlarin gorusu; ayrintili hesap raporlari katlanir bolumde.
-  const absOf = (m, s) => (m.ab ? m.ab[s] || [] : m.sq && m.sq[s] ? m.sq[s].out || [] : null);   // null: bilinmiyor
+  // resmi liste (m.ab) varsa o; takim izlenmiyorsa (null) ya da liste yoksa son kadrolardan tahmin; ikisi de yoksa null
+  const absOf = (m, s) => (m.ab && m.ab[s] != null ? m.ab[s] : m.sq && m.sq[s] ? m.sq[s].out || [] : null);
+  const absReal = (m, s) => !!(m.ab && m.ab[s] != null);
   const absN = L => (L || []).filter(x => x.w !== 'doubt').length;
   function axSummary(m, c) {
     const p = m.p, H = ts(m.h), A = ts(m.a), out = [];
@@ -1157,7 +1159,7 @@
     const col = (id, L) => `<div class="an2a"><div class="an2ah">${logo(id)}<b>${esc(ts(id))}</b></div>${L == null ? `<p class="mut">${t('an2_abs_na')}</p>` : L.length
       ? `<ul>${L.map(x => `<li><span>${esc(x.n)}</span><em class="w-${wk(x.w)}"${x.r ? ` title="${esc(x.r)}"` : ''}>${esc(t('an2_w_' + wk(x.w)))}</em></li>`).join('')}</ul>` : `<p class="mut">${t('no_absent')}</p>`}</div>`;
     return `<div class="card sec"><h2>${t('an2_abs_t')}</h2><div class="an2ag">${col(m.h, ah)}${col(m.a, aa)}</div>
-      <p class="note" style="margin:10px 0 0">${m.ab ? fmt(t('an2_src_apf'), { t: upd }) : t('an2_src_lu')}</p></div>`;
+      <p class="note" style="margin:10px 0 0">${absReal(m, 'h') || absReal(m, 'a') ? fmt(t('an2_src_real'), { s: m.ab.s === 'apf' ? 'API-Football' : 'FotMob', t: upd }) + (absReal(m, 'h') && absReal(m, 'a') ? '' : ' ' + t('an2_src_part')) : t('an2_src_lu')}</p></div>`;
   }
   function axAgents(m, X, c) {
     const rows = X.voters.map(a => { const x = X.A[a]; return { a, k: x.k, v: x.k ? '%' + pct(x.v[x.k]) : '' }; });

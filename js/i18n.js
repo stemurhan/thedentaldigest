@@ -1031,3 +1031,6 @@ Object.assign(window.I18N.tk, {
 Object.assign(window.I18N.tr, { w_inj: 'Sakat', w_sus: 'Cezalı', w_doubt: 'Şüpheli' });
 Object.assign(window.I18N.ru, { w_inj: 'Травма', w_sus: 'Дисквалификация', w_doubt: 'Под вопросом' });
 Object.assign(window.I18N.tk, { w_inj: 'Şikesli', w_sus: 'Jezaly', w_doubt: 'Şübheli' });
+Object.assign(window.I18N.tr, { an2_src_real: 'Kaynak: güncel eksik listesi ({s}) · güncellendi {t}. Şüpheli oyuncular modele katılmaz; eksiğin etkisi oyuncunun takımdaki değerine göre tartılır.', an2_src_part: 'Bir takım için resmi liste yok; o takımın eksikleri son kadrolardan tahmin edildi.' });
+Object.assign(window.I18N.ru, { an2_src_real: 'Источник: актуальный список потерь ({s}) · обновлено {t}. Игроки под вопросом не учитываются; влияние потери взвешено по ценности игрока.', an2_src_part: 'Для одной команды официального списка нет; её потери оценены по последним составам.' });
+Object.assign(window.I18N.tk, { an2_src_real: 'Çeşme: täze ýetmezler sanawy ({s}) · täzelendi {t}. Şübheli oýunçylar modele goşulmaýar; ýetmeziň täsiri oýunçynyň toparda gymmatyna görä ölçelýär.', an2_src_part: 'Bir topar üçin resmi sanaw ýok; onuň ýetmezleri soňky düzümlerden çaklandy.' });
