@@ -339,6 +339,78 @@ def apf_get(path, ttl=3 * 3600):
         return (c or {}).get("d")
 
 
+# ---- Gercek sakat / cezali listesi (API-Football) ------------------------------------------
+# ESPN futbolda sakatlik vermez; anahtar (API_FOOTBALL_KEY) varsa yaklasan maclarin resmi eksik listesi
+# alinir: sakat, cezali (kirmizi kart / kart cezasi) ve suphe. Ucretsiz plan gunde 100 istek verir:
+# gun basina tek fikstur istegi (6 saat onbellek) + 20'serli mac paketleriyle eksik istegi (2.5 saat onbellek).
+# Anahtar yoksa ya da veri gelmezse site son kadrolardan cikarilan eksik tahminiyle devam eder.
+APF_INJ_HOURS = 60                     # bu kadar saat icindeki maclar
+APF_INJ_MAX = 120                      # en fazla mac (6 paket); yakin ve ust lig maclari once
+APF_STAT = {"n": 0, "err": ""}
+
+
+def load_apf_absences(upcoming):
+    """{mac_id: {"h": [{"n", "w": inj|sus|doubt, "r"}], "a": [...]}} - yalnizca verisi alinabilen maclar."""
+    out = {}
+    if not APF_KEY:
+        APF_STAT["err"] = "API_FOOTBALL_KEY tanimli degil"
+        return out
+    want = [m for m in upcoming if NOW - timedelta(hours=1) <= m["dt"] <= NOW + timedelta(hours=APF_INJ_HOURS)]
+    rows = []
+    for day in sorted({m["dt"].strftime("%Y-%m-%d") for m in want}):
+        r = apf_get(f"fixtures?date={day}", ttl=6 * 3600) or {}
+        if r.get("errors"):
+            APF_STAT["err"] = str(r["errors"])[:200]
+        for it in r.get("response") or []:
+            f_, tm = it.get("fixture") or {}, it.get("teams") or {}
+            h_, a_ = tm.get("home") or {}, tm.get("away") or {}
+            if f_.get("id") and h_.get("id") and a_.get("id"):
+                rows.append((f_.get("timestamp") or 0, h_.get("name") or "", a_.get("name") or "", f_["id"], h_["id"], a_["id"]))
+    pick = {}
+    for m in want:
+        t0, best = m["dt"].timestamp(), None
+        hn = [m["h"]["n"], m["h"].get("s") or m["h"]["n"]]
+        an = [m["a"]["n"], m["a"].get("s") or m["a"]["n"]]
+        for ts_, h_, a_, fid, hid, aid in rows:
+            if abs(ts_ - t0) > 3600:
+                continue
+            sc = min(max(name_sim(x, h_) for x in hn), max(name_sim(x, a_) for x in an))
+            if sc >= 0.6 and (best is None or sc > best[0]):
+                best = (sc, fid, hid, aid)
+        if best:
+            pick[m["id"]] = (best[1], best[2], best[3], LGMAP.get(m["lg"], {}).get("tier", 2), m["dt"])
+    order = sorted(pick, key=lambda i: (pick[i][3], pick[i][4]))[:APF_INJ_MAX]
+    fids = [pick[i][0] for i in order]
+    got, inj = set(), defaultdict(list)
+    for i in range(0, len(fids), 20):
+        part = fids[i:i + 20]
+        r = apf_get("injuries?ids=" + "-".join(str(x) for x in part), ttl=2.5 * 3600)
+        if not r or r.get("errors"):
+            if r and r.get("errors"):
+                APF_STAT["err"] = str(r["errors"])[:200]
+            continue
+        got |= set(part)
+        for x in r.get("response") or []:
+            inj[(x.get("fixture") or {}).get("id")].append(x)
+    for mid in order:
+        fid, hid, aid = pick[mid][:3]
+        if fid not in got:
+            continue
+        side = {"h": [], "a": []}
+        for x in inj.get(fid, []):
+            pl, tid = x.get("player") or {}, (x.get("team") or {}).get("id")
+            s_ = "h" if tid == hid else "a" if tid == aid else None
+            nm = fx(pl.get("name") or "")
+            if not s_ or not nm or any(y["n"] == nm for y in side[s_]):
+                continue
+            typ, rs = (pl.get("type") or "").lower(), pl.get("reason") or ""
+            w = "doubt" if "question" in typ else "sus" if re.search(r"suspen|red card|yellow card|card", rs, re.I) else "inj"
+            side[s_].append({"n": nm, "w": w, "r": rs[:40]})
+        out[mid] = side
+    APF_STAT["n"] = len(out)
+    return out
+
+
 def load_apf_preds(upcoming):
     """Onumuzdeki 3 gunde, sadece 1. lig maclari icin API-Football tahminlerini yukler."""
     out = {}
@@ -2769,10 +2841,9 @@ def main():
     rjobs = sorted({(m["lg"], m[s]["id"]) for m in soon for s in ("h", "a")})
     rosters = dict(pmap(load_roster, rjobs, "oyuncu"))
 
-    global apf_preds
-    apf_preds = load_apf_preds(upcoming)
-    if apf_preds:
-        print(f"   API-Football: {len(apf_preds)} mac tahmini", flush=True)
+    # gercek eksik listesi (API-Football); tahmin istekleri kullanilmadigi icin artik cagrilmiyor (kotayi harciyordu)
+    absn = load_apf_absences(upcoming)
+    print(f"   Eksik listesi: {APF_STAT['n']} mac API-Football" + (f" (hata: {APF_STAT['err']})" if APF_STAT["err"] else ""), flush=True)
 
     print("4/6 Tahminler ve analiz...", flush=True)
     if os.getenv("ANALIZ_TUNE"):                     # gelistirme: Fenasi ayarlarini geriye donuk testle karsilastir
@@ -2904,7 +2975,15 @@ def main():
         h2h = h2h[-6:][::-1]
         detail = m["dt"] <= NOW + timedelta(days=DETAIL_DAYS)
         sqh, sqa = (squad(hid, lid), squad(aid, lid)) if detail else (None, None)
-        fnl = fenasi_lambdas(fstr[lid], avg_h, avg_a, hid, aid, by_team, lg, m["dt"], sqh, sqa)
+        ab = absn.get(m["id"])
+        if ab is not None:                           # resmi eksik listesi: kadro tahmininin yerine gecer
+            for sq_, k_ in ((sqh, "h"), (sqa, "a")):
+                if sq_:
+                    sq_["out"] = ab[k_]
+            real_ = lambda L: {"out": [x for x in L if x["w"] != "doubt"]}     # suphe modele katilmaz
+            fnl = fenasi_lambdas(fstr[lid], avg_h, avg_a, hid, aid, by_team, lg, m["dt"], real_(ab["h"]), real_(ab["a"]))
+        else:
+            fnl = fenasi_lambdas(fstr[lid], avg_h, avg_a, hid, aid, by_team, lg, m["dt"], sqh, sqa)
         rec = {"id": m["id"], "lg": lid, "d": m["d"], "h": hid, "a": aid, "v": m["v"],
                "src": ref_name, "ou": ou_src, "ss": ss,
                "o": mk, "p": p, "f": {"h": fh, "a": fa}, "h2h": h2h,
@@ -2913,6 +2992,8 @@ def main():
                "pl": {"h": rosters.get((lid, hid), []), "a": rosters.get((lid, aid), [])}}
         if m.get("tr"):
             rec["tr"] = m["tr"]
+        if ab is not None:
+            rec["ab"] = ab                           # resmi eksikler (analiz sayfasinda dogrudan gosterilir)
         # ilk yari sonucu ve IY/MS: Nesine orani varsa o, yoksa model
         hp_iy, hp_hf = half_probs(p["lh"], p["la"])
         rec["xo"] = {"iy": (nes or {}).get("iy") or [odd(x) for x in hp_iy],
@@ -3097,7 +3178,8 @@ def main():
                         for l in LEAGUES],
             "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb, "since": STATS_FROM,
             "agacc": agacc, "agaccbb": agaccbb, "agents": AGENTS,
-            "agbt": agbt, "agw": AG_W}
+            "agbt": agbt, "agw": AG_W,
+            "inj": {"src": "apf" if APF_STAT["n"] else "lineup", "n": APF_STAT["n"], "err": APF_STAT["err"]}}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

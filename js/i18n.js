@@ -987,3 +987,47 @@ Object.assign(window.I18N.tk, {
 Object.assign(window.I18N.tr, { m_note: 'Her 2 günde bir, önümüzdeki 48 saatin maçlarından kuponlar hazırlanır: banko, sürpriz (toplam oran 20+), sistem, yüksek oran, İY/MS ve skor kuponu. Yayınlanan kupon değiştirilmez; bir kupon kaybederse yerine hemen yenisi yayınlanır, kaybeden kupon sonuçlananlar arasında kalır.' });
 Object.assign(window.I18N.ru, { m_note: 'Каждые 2 дня из матчей ближайших 48 часов составляются купоны: надёжный, сюрприз (коэф. 20+), системный, высокий коэффициент, тайм/матч и точный счёт. Опубликованный купон не меняется; если купон проиграл, сразу публикуется новый, а проигравший остаётся среди завершённых.' });
 Object.assign(window.I18N.tk, { m_note: 'Her 2 günden, golaýdaky 48 sagadyň oýunlaryndan kuponlar taýýarlanýar: ynamly, garaşylmadyk (20+), ulgam, ýokary koeffisiýent, ýarym/netije we hasap kupony. Çap edilen kupon üýtgedilmeýär; kupon utulsa ýerine derrew täzesi çap edilýär, utulan kupon netijelenenleriň arasynda galýar.' });
+
+// analiz sayfasi (sade gorunum)
+Object.assign(window.I18N.tr, {
+  an2_fav: '{t} favori: kazanma olasılığı %{p}.', an2_even: 'Dengeli maç: 1 %{a} · X %{b} · 2 %{c}.',
+  an2_goal_hi: 'Toplam {x} gol bekleniyor; 2.5 Üst %{p}, karşılıklı gol %{b}.', an2_goal_lo: 'Toplam {x} gol bekleniyor; 2.5 Alt %{p}, karşılıklı gol %{b}.',
+  an2_abs: 'Eksikler: {a} {n}, {b} {k} oyuncu.', an2_votes: '5 ajandan {v}\'i {k} seçimini %50\'den olası buluyor.',
+  an2_cmp: 'Karşılaştırma', an2_form: 'Form (son 5)', an2_pts: 'puan', an2_rank: 'Puan durumu', an2_rec: 'Sezon karnesi', an2_rec_s: 'iç saha / deplasman',
+  an2_gf: 'Maç başı atılan', an2_ga: 'Maç başı yenilen', an2_out: 'Eksik oyuncu', an2_rest: 'Dinlenme', an2_h2h: 'Aralarındaki maçlar', an2_h2h_s: '{n} maç, {d} beraberlik',
+  an2_abs_t: 'Sakat ve cezalı oyuncular', an2_abs_na: 'Bilgi yok.',
+  an2_w_inj: 'Sakat', an2_w_sus: 'Cezalı', an2_w_doubt: 'Şüpheli', an2_w_abs: 'Kadroda yoktu',
+  an2_src_apf: 'Kaynak: resmi eksik listesi (API-Football) · güncellendi {t}. Şüpheli oyuncular modele katılmaz.',
+  an2_src_lu: 'Resmi eksik listesi alınamadı: liste son maç kadrolarından ve kırmızı kartlardan tahmin edilir; maç günü açıklanan kadro farklı olabilir.',
+  an2_ag: 'Ajanların görüşü', an2_more: 'Ajanların ayrıntılı hesabı (veri, adımlar, yorum)',
+  an2_upd: 'Analiz güncellendi: {t} · her 2 saatte yenilenir', an2_s_time: 'Saate göre', an2_s_conf: 'Güvene göre'
+});
+Object.assign(window.I18N.ru, {
+  an2_fav: '{t} — фаворит: вероятность победы {p}%.', an2_even: 'Равный матч: 1 {a}% · X {b}% · 2 {c}%.',
+  an2_goal_hi: 'Ожидается {x} гола; ТБ 2.5 {p}%, обе забьют {b}%.', an2_goal_lo: 'Ожидается {x} гола; ТМ 2.5 {p}%, обе забьют {b}%.',
+  an2_abs: 'Потери: {a} — {n}, {b} — {k}.', an2_votes: '{v} из 5 агентов считают «{k}» вероятнее 50%.',
+  an2_cmp: 'Сравнение', an2_form: 'Форма (5 матчей)', an2_pts: 'очк.', an2_rank: 'Место в таблице', an2_rec: 'Сезон', an2_rec_s: 'дома / в гостях',
+  an2_gf: 'Забивает за матч', an2_ga: 'Пропускает за матч', an2_out: 'Потери', an2_rest: 'Отдых', an2_h2h: 'Личные встречи', an2_h2h_s: '{n} матчей, {d} ничьих',
+  an2_abs_t: 'Травмированные и дисквалифицированные', an2_abs_na: 'Нет данных.',
+  an2_w_inj: 'Травма', an2_w_sus: 'Дискв.', an2_w_doubt: 'Под вопросом', an2_w_abs: 'Не в заявке',
+  an2_src_apf: 'Источник: официальный список (API-Football) · обновлено {t}. Игроки под вопросом в модели не учитываются.',
+  an2_src_lu: 'Официальный список недоступен: потери оцениваются по последним составам и красным карточкам.',
+  an2_ag: 'Мнение агентов', an2_more: 'Подробный расчёт агентов (данные, шаги, вывод)',
+  an2_upd: 'Анализ обновлён: {t} · обновляется каждые 2 часа', an2_s_time: 'По времени', an2_s_conf: 'По уверенности'
+});
+Object.assign(window.I18N.tk, {
+  an2_fav: '{t} favorit: ýeňiş ähtimallygy %{p}.', an2_even: 'Deňagramly oýun: 1 %{a} · X %{b} · 2 %{c}.',
+  an2_goal_hi: 'Jemi {x} gol garaşylýar; 2.5 Köp %{p}, iki tarap hem gol %{b}.', an2_goal_lo: 'Jemi {x} gol garaşylýar; 2.5 Az %{p}, iki tarap hem gol %{b}.',
+  an2_abs: 'Ýetmezler: {a} {n}, {b} {k} oýunçy.', an2_votes: '5 agentden {v}-si {k} saýlawyny %50-den ähtimal hasaplaýar.',
+  an2_cmp: 'Deňeşdirme', an2_form: 'Görnüş (soňky 5)', an2_pts: 'utuk', an2_rank: 'Ýeri', an2_rec: 'Möwsüm', an2_rec_s: 'öýde / myhmançylykda',
+  an2_gf: 'Oýun başyna salnan', an2_ga: 'Oýun başyna goýberilen', an2_out: 'Ýetmez oýunçy', an2_rest: 'Dynç', an2_h2h: 'Özara oýunlar', an2_h2h_s: '{n} oýun, {d} deňme-deň',
+  an2_abs_t: 'Şikesli we jezaly oýunçylar', an2_abs_na: 'Maglumat ýok.',
+  an2_w_inj: 'Şikesli', an2_w_sus: 'Jezaly', an2_w_doubt: 'Şübheli', an2_w_abs: 'Düzümde ýokdy',
+  an2_src_apf: 'Çeşme: resmi sanaw (API-Football) · täzelendi {t}. Şübheli oýunçylar modele goşulmaýar.',
+  an2_src_lu: 'Resmi sanaw alynmady: ýetmezler soňky düzümlerden we gyzyl kartoçkalardan çaklanýar.',
+  an2_ag: 'Agentleriň pikiri', an2_more: 'Agentleriň giňişleýin hasaby (maglumat, ädimler, teswir)',
+  an2_upd: 'Seljerme täzelendi: {t} · her 2 sagatda täzelenýär', an2_s_time: 'Wagt boýunça', an2_s_conf: 'Ynam boýunça'
+});
+Object.assign(window.I18N.tr, { w_inj: 'Sakat', w_sus: 'Cezalı', w_doubt: 'Şüpheli' });
+Object.assign(window.I18N.ru, { w_inj: 'Травма', w_sus: 'Дисквалификация', w_doubt: 'Под вопросом' });
+Object.assign(window.I18N.tk, { w_inj: 'Şikesli', w_sus: 'Jezaly', w_doubt: 'Şübheli' });

@@ -68,7 +68,7 @@
     if (merged.size !== srv.length) SB.from('profiles').update({ favs: [...merged] }).eq('id', profile.id).then(() => { });
     FAV = merged; LS.set('fav', [...FAV]);
   }
-  const flt = { lg: 'all', day: 'all', q: '', alim: 24, lvall: false, blim: 3, rlim: 2 };
+  const flt = { lg: 'all', day: 'all', q: '', alim: 24, lvall: false, blim: 3, rlim: 2, asort: LS.get('asort', 'time') };
   let FAV = new Set(LS.get('fav', []));
   const isFavM = m => FAV.has(m.h) || FAV.has(m.a);
   const lgOk = m => flt.lg === 'all' || (flt.lg === 'fav' ? isFavM(m) : m.lg === flt.lg);
@@ -929,27 +929,32 @@
       ${!live && !bb ? `<p class="note" style="margin:-6px 2px 12px">${t('bt_d')}</p>` : ''}`;
   }
   function anCard(m) {
-    const bb = m.sport === 'bb', p = m.p, c = agCons(m);
-    const stat = (l, v) => `<div class="ans"><small>${l}</small><b class="num">${v}</b></div>`;
-    const stats = bb
-      ? stat(t('bb_exp_total'), p.total) + stat(t('bb_margin'), p.margin != null ? (p.margin >= 0 ? '+' : '') + p.margin.toFixed(1) : '–') + stat(t('over') + ' ' + m.line, p.po != null ? pct(p.po) + '%' : '–')
-      : stat('xG', p.lh.toFixed(2) + ' – ' + p.la.toFixed(2)) + stat(t('over') + ' 2.5', pct(p.o25) + '%') + stat(t('btts'), pct(p.btts) + '%');
-    return `<a class="card anc" href="#/mac/${m.id}${bb ? '' : '/analiz'}">
+    const bb = m.sport === 'bb', p = m.p, c = agCons(m), tp = tipOf(m);
+    const facts = bb
+      ? [t('bb_exp_total') + ' ' + p.total, p.margin != null ? t('bb_margin') + ' ' + (p.margin >= 0 ? '+' : '') + p.margin.toFixed(1) : '', p.po != null ? t('over') + ' ' + m.line + ' %' + pct(p.po) : '']
+      : ['xG ' + p.lh.toFixed(2) + '–' + p.la.toFixed(2), t('over') + ' 2.5 %' + pct(p.o25), t('kg_s') + ' %' + pct(p.btts)];
+    if (!bb) { const nh = absN(absOf(m, 'h')), na = absN(absOf(m, 'a')); if (nh + na) facts.push('🩹 ' + nh + '–' + na); }
+    const k = c && (c.srv || c.n >= 2) ? c.k : tp && tp.k, conf = tp ? Math.round(tp.p * 100) : null;
+    return `<a class="card anc an2c" href="#/mac/${m.id}${bb ? '' : '/analiz'}">
       <div class="anh"><span>${badge(bb ? 'nba' : m.lg)} ${esc(bb ? 'NBA' : ln(m.lg))}</span><span class="num">${timeOf(m.d)}</span></div>
       <div class="ant"><div class="tm">${logo(m.h)}<span>${esc(ts(m.h))}</span></div><div class="sc"><small>${t('pred_score')}</small><b class="num">${p.score[0]} - ${p.score[1]}</b></div><div class="tm r"><span>${esc(ts(m.a))}</span>${logo(m.a)}</div></div>
-      <div>${pbar(p)}<div class="anl3"><span>1</span>${bb ? '' : '<span>X</span>'}<span>2</span></div></div>
-      <div class="anst">${stats}</div>
-      ${agTiles(m)}
-      ${c && (c.srv || c.n >= 2) ? `<div class="anf"><span class="pill">${t('ag_cons')}</span><b>${esc(mkLabel(c.k, m))}</b><span class="num od${oSrc(m, c.k) === 'model' ? ' mdl' : ''}" title="${esc(srcTip(m, c.k))}">${m.o[c.k].toFixed(2)}</span><span class="num vt" title="${esc(fmt(t('ag_votes_t'), { v: c.n }))}">${c.n}/5</span></div>` : ''}
+      <div>${pbar(p)}</div>
+      ${k && m.o[k] ? `<div class="anf"><span class="pill">${t('ag_cons')}</span><b>${esc(mkLabel(k, m))}</b><span class="num od${oSrc(m, k) === 'model' ? ' mdl' : ''}" title="${esc(srcTip(m, k))}">${m.o[k].toFixed(2)}</span>${conf != null && k === tp.k ? `<span class="num vt" title="${esc(t('confidence'))}">%${conf}</span>` : ''}</div>` : ''}
+      <div class="anfx">${facts.filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</div>
     </a>`;
   }
   function viewAnalysis() {
     const bb = flt.sp === 'bb', up = bb ? BB.matches.filter(future) : upcoming();
-    const list = (bb ? up : up.filter(lgOk)).slice().sort(byDate), shown = list.slice(0, flt.alim), more = list.length - shown.length;
+    const byConf = flt.asort === 'conf', cf = m => { const x = tipOf(m); return x ? x.p : 0; };
+    const list = (bb ? up : up.filter(lgOk)).slice().sort(byConf ? (a, b) => cf(b) - cf(a) || byDate(a, b) : byDate), shown = list.slice(0, flt.alim), more = list.length - shown.length;
     let html = `<div class="pagehead"><h1>${t('analysis')}</h1></div>${spSeg()}
-      ${bb ? '' : lgChips(new Set(up.map(m => m.lg)), true)}${agScoreStrip(bb)}`;
+      ${bb ? '' : lgChips(new Set(up.map(m => m.lg)), true)}
+      <div class="an2bar2"><div class="seg" role="tablist">${[['time', 'an2_s_time'], ['conf', 'an2_s_conf']].map(([k, l]) => `<button class="${(byConf ? 'conf' : 'time') === k ? 'on' : ''}" data-asort="${k}">${t(l)}</button>`).join('')}</div>
+        <small class="mut">${fmt(t('an2_upd'), { t: D.updated ? shortDate(D.updated) + ' ' + timeOf(D.updated) : '–' })}</small></div>
+      ${agScoreStrip(bb)}`;
     if (!list.length) return html + `<div class="card empty">${t(bb ? 'bb_none' : 'nomatch')}</div>`;
-    [...new Set(shown.map(m => dayKey(m.d)))].forEach(dk => {
+    if (byConf) html += `<div class="ancs">${shown.map(anCard).join('')}</div>`;
+    else [...new Set(shown.map(m => dayKey(m.d)))].forEach(dk => {
       const ms = shown.filter(m => dayKey(m.d) === dk);
       html += `<h2 class="dayhead">${dayLabel(dk)} <small>${ms.length} ${t('selections')}</small></h2><div class="ancs">${ms.map(anCard).join('')}</div>`;
     });
@@ -1100,7 +1105,92 @@
     return out;
   }
 
+  // ---------- mac detay: Analiz sekmesi (sade gorunum) ----------
+  // Ozet karar -> karsilastirma -> eksikler -> ajanlarin gorusu; ayrintili hesap raporlari katlanir bolumde.
+  const absOf = (m, s) => (m.ab ? m.ab[s] || [] : m.sq && m.sq[s] ? m.sq[s].out || [] : null);   // null: bilinmiyor
+  const absN = L => (L || []).filter(x => x.w !== 'doubt').length;
+  function axSummary(m, c) {
+    const p = m.p, H = ts(m.h), A = ts(m.a), out = [];
+    out.push(Math.abs(p.p1 - p.p2) >= .12 ? fmt(t('an2_fav'), { t: p.p1 > p.p2 ? H : A, p: pct(Math.max(p.p1, p.p2)) })
+      : fmt(t('an2_even'), { a: pct(p.p1), b: pct(p.px), c: pct(p.p2) }));
+    out.push(fmt(t(p.o25 >= .5 ? 'an2_goal_hi' : 'an2_goal_lo'), { x: (p.lh + p.la).toFixed(1), p: pct(p.o25 >= .5 ? p.o25 : 1 - p.o25), b: pct(p.btts) }));
+    const nh = absN(absOf(m, 'h')), na = absN(absOf(m, 'a'));
+    if (nh + na) out.push(fmt(t('an2_abs'), { a: H, n: nh, b: A, k: na }));
+    if (c) out.push(fmt(t('an2_votes'), { v: c.n, k: mkLabel(c.k, m) }));
+    return out;
+  }
+  function axCompare(m) {
+    const H = ts(m.h), A = ts(m.a), sh = m.st.h || {}, sa = m.st.a || {}, x0 = m.agx || {};
+    const tb = (D.tables || {})[m.lg], rk = id => (tb ? tb.all.findIndex(r => r.t === id) + 1 : 0);
+    const per = (v, n) => (n ? (v / n).toFixed(2) : '–');
+    const rows = [];
+    const row = (lab, a, b, better, sub) => rows.push(`<tr><td class="${better === 'h' ? 'hi' : ''}">${a}</td><th>${lab}${sub ? ` <small class="mut">${sub}</small>` : ''}</th><td class="${better === 'a' ? 'hi' : ''}">${b}</td></tr>`);
+    const fh = m.f.h.slice(0, 5), fa = m.f.a.slice(0, 5), ph = formPts(m.f.h), pa = formPts(m.f.a);
+    if (fh.length || fa.length) row(t('an2_form'), `<span class="fr">${formDots(fh.map(x => x.r).reverse())}</span>`,
+      `<span class="fr">${formDots(fa.map(x => x.r).reverse())}</span>`, ph > pa + 1 ? 'h' : pa > ph + 1 ? 'a' : '', `${ph} – ${pa} ${t('an2_pts')}`);
+    const ra = rk(m.h), rb = rk(m.a);
+    if (ra && rb) row(t('an2_rank'), ra + '.', rb + '.', ra < rb ? 'h' : rb < ra ? 'a' : '');
+    if (sh.p || sa.p) {
+      row(t('an2_rec'), `${sh.w || 0}-${sh.d || 0}-${sh.l || 0}`, `${sa.w || 0}-${sa.d || 0}-${sa.l || 0}`, '', t('an2_rec_s'));
+      const g1 = sh.p ? sh.gf / sh.p : null, g2 = sa.p ? sa.gf / sa.p : null, c1 = sh.p ? sh.ga / sh.p : null, c2 = sa.p ? sa.ga / sa.p : null;
+      row(t('an2_gf'), per(sh.gf, sh.p), per(sa.gf, sa.p), g1 != null && g2 != null ? (g1 > g2 + .2 ? 'h' : g2 > g1 + .2 ? 'a' : '') : '');
+      row(t('an2_ga'), per(sh.ga, sh.p), per(sa.ga, sa.p), c1 != null && c2 != null ? (c1 < c2 - .2 ? 'h' : c2 < c1 - .2 ? 'a' : '') : '');
+    }
+    const ah = absOf(m, 'h'), aa = absOf(m, 'a');
+    if (ah || aa) { const n1 = absN(ah), n2 = absN(aa); row(t('an2_out'), ah ? n1 : '–', aa ? n2 : '–', ah && aa ? (n1 < n2 ? 'h' : n2 < n1 ? 'a' : '') : ''); }
+    const rs = x0.rest || [];
+    if (rs[0] != null || rs[1] != null) row(t('an2_rest'), rs[0] != null ? rs[0] + ' ' + t('ax_days') : '–', rs[1] != null ? rs[1] + ' ' + t('ax_days') : '–',
+      rs[0] != null && rs[1] != null ? (rs[0] < 4 && rs[1] >= 4 ? 'a' : rs[1] < 4 && rs[0] >= 4 ? 'h' : '') : '');
+    if (m.h2h.length) {
+      let w = 0, d = 0, l = 0;
+      m.h2h.forEach(g => { const hg = g.h === m.h ? g.hs : g.as, ag = g.h === m.h ? g.as : g.hs; if (hg > ag) w++; else if (hg < ag) l++; else d++; });
+      row(t('an2_h2h'), w, l, w > l ? 'h' : l > w ? 'a' : '', fmt(t('an2_h2h_s'), { n: m.h2h.length, d }));
+    }
+    if (!rows.length) return '';
+    return `<div class="card sec"><h2>${t('an2_cmp')}</h2><table class="an2t"><thead><tr><td>${logo(m.h)}<b>${esc(H)}</b></td><th></th><td><b>${esc(A)}</b>${logo(m.a)}</td></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  }
+  function axAbsCard(m) {
+    const ah = absOf(m, 'h'), aa = absOf(m, 'a');
+    if (!ah && !aa) return '';
+    const upd = D.updated ? shortDate(D.updated) + ' ' + timeOf(D.updated) : '–';
+    const wk = w => (w === 'red' ? 'sus' : w === 'absent' ? 'abs' : w);
+    const col = (id, L) => `<div class="an2a"><div class="an2ah">${logo(id)}<b>${esc(ts(id))}</b></div>${L == null ? `<p class="mut">${t('an2_abs_na')}</p>` : L.length
+      ? `<ul>${L.map(x => `<li><span>${esc(x.n)}</span><em class="w-${wk(x.w)}"${x.r ? ` title="${esc(x.r)}"` : ''}>${esc(t('an2_w_' + wk(x.w)))}</em></li>`).join('')}</ul>` : `<p class="mut">${t('no_absent')}</p>`}</div>`;
+    return `<div class="card sec"><h2>${t('an2_abs_t')}</h2><div class="an2ag">${col(m.h, ah)}${col(m.a, aa)}</div>
+      <p class="note" style="margin:10px 0 0">${m.ab ? fmt(t('an2_src_apf'), { t: upd }) : t('an2_src_lu')}</p></div>`;
+  }
+  function axAgents(m, X, c) {
+    const rows = X.voters.map(a => { const x = X.A[a]; return { a, k: x.k, v: x.k ? '%' + pct(x.v[x.k]) : '' }; });
+    if (X.vr) rows.push({ a: 'vr', k: X.vr.r.ev >= 0 ? X.vr.k : null, v: X.vr.r.ev >= 0 ? '+' + Math.round(X.vr.r.ev * 100) + '%' : '' });
+    return `<div class="card sec"><h2>${t('an2_ag')}</h2><div class="an2l">${rows.map(r => `<div class="an2r${c && r.k && r.k === c.k ? ' agr' : ''}">${agAv(r.a, false, AX_IC[r.a])}<div class="an2n"><b>${esc(t('ag_' + r.a))}</b><small>${esc(t('ax_m_' + r.a))}</small></div>
+      ${r.k ? `<span class="an2p">${esc(shortLab(r.k, m))}</span><span class="num an2v">${r.v}</span>` : `<span class="an2p mut">${t('ag_pass')}</span><span></span>`}</div>`).join('')}</div>
+      <details class="axmore"><summary>${t('an2_more')}</summary><div class="axmore-b">${axDetails(m)}</div></details></div>`;
+  }
   function tabAnalysis(m) {
+    const p = m.p, tp = tipOf(m), c = agCons(m), X = axModel(m), H = ts(m.h), A = ts(m.a);
+    const conf = Math.round(tp.p * 100), upd = D.updated ? shortDate(D.updated) + ' ' + timeOf(D.updated) : '–';
+    const kpi = (l, v) => `<div class="an2k"><small>${l}</small><b class="num">${v}</b></div>`;
+    return `<div class="card sec an2h">
+        <div class="an2top">
+          <div class="an2tip"><small>★ ${t('ag_cons')}</small><b>${esc(mkLabel(tp.k, m))}</b>
+            <div class="an2bar"><i style="width:${conf}%"></i></div>
+            <span class="mut">${t('confidence')} %${conf}${c ? ` · <span title="${esc(fmt(t('ag_votes_t'), { v: c.n }))}">${fmt(t('ag_votes'), { v: c.n })}</span>` : ''}</span></div>
+          <div class="an2ob">${ob(m, tp.k)}</div>
+        </div>
+        <div class="an2mid">
+          <div class="an2sc"><small>${t('pred_score')}</small><b class="num">${p.score[0]} – ${p.score[1]}</b><span class="mut">${t('pred_ht')} ${p.ht[0]}–${p.ht[1]}</span></div>
+          <div class="an2pb">${pbar(p)}<div class="plabels"><span>1 · ${esc(H)}</span><span>X</span><span>2 · ${esc(A)}</span></div></div>
+        </div>
+        <div class="an2ks">${kpi('xG', p.lh.toFixed(2) + ' – ' + p.la.toFixed(2))}${kpi(t('over') + ' 2.5', pct(p.o25) + '%')}${kpi(t('btts'), pct(p.btts) + '%')}${kpi(t('likely_scores'), p.top.slice(0, 3).map(s => s[0] + '-' + s[1]).join(' · '))}</div>
+        <ul class="an2s">${axSummary(m, c).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+      </div>
+      ${axCompare(m)}
+      ${axAbsCard(m)}
+      ${axAgents(m, X, c)}
+      <p class="note an2f">🕒 ${fmt(t('an2_upd'), { t: upd })} · ${t('ax_s_odds')}: ${esc(srcName(m.src))}</p>`;
+  }
+  // ayrintili hesap: her ajanin verisi, adim adim hesabi ve yorumu (katlanir bolumde)
+  function axDetails(m) {
     const X = axModel(m), A = X.A, H = ts(m.h), Aw = ts(m.a), o = m.o, ag = m.ag || {};
     if (!X.voters.length) return `<div class="card empty">${t('ax_none')}</div>`;
     const sh = m.st.h || {}, sa = m.st.a || {}, fh = m.f.h || [], fa = m.f.a || [], x0 = m.agx || {};
@@ -1408,10 +1498,11 @@
         <div class="vs"><div class="side-t">${logo(m.h)}<span>${esc(tn(m.h))}</span></div><div class="mid">${timeOf(m.d)}<small>${shortDate(m.d)}</small></div><div class="side-t">${logo(m.a)}<span>${esc(tn(m.a))}</span></div></div></div></div>
         <div class="card empty"><span class="spin"></span> ${t('loading')}</div>`;
     }
-    const TABS = [['an', '🔎 ' + t('ax_tab')], ['pred', t('pred')], ['odds', t('odds')], ['table', t('standings')], ['form', t('formh2h')], ['squad', t('lineups')], ['players', t('players')]];
+    // Tahmin sekmesi Analiz'e katildi (tek, sade ozet); eski baglantilar Analiz'i acar
+    const TABS = [['an', t('ax_tab')], ['odds', t('odds')], ['table', t('standings')], ['form', t('formh2h')], ['squad', t('lineups')], ['players', t('players')]];
+    if (!TABS.some(x => x[0] === dtab)) dtab = 'an';
     let body = '';
-    if (dtab === 'pred') body = tabPred(m);
-    else if (dtab === 'an') body = tabAnalysis(m);
+    if (dtab === 'an') body = tabAnalysis(m);
     else if (dtab === 'odds') body = tabOdds(m);
     else if (dtab === 'table') body = `<div class="card sec">${tableHtml(m.lg, [m.h, m.a])}</div>`;
     else if (dtab === 'form') body = tabForm(m);
@@ -2271,6 +2362,7 @@
     if (d.day) { flt.day = d.day; flt.q = ''; flt.alim = 24; return render(); }
     if (d.rday) { flt.rday = d.rday; return render(); }
     if (d.dtab) { dtab = d.dtab; render(); if (d.top) scrollTo(0, 0); return; }
+    if (d.asort) { flt.asort = d.asort; LS.set('asort', d.asort); render(); return; }
     if (d.axj) { const el = $('ax-' + d.axj); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (d.fav) {
       const id = d.fav, on = !FAV.has(id);
