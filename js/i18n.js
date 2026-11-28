@@ -982,3 +982,8 @@ Object.assign(window.I18N.tk, {
   tz_l: 'Wagt:', tz_local: 'Enjam wagty', tz_asb: 'Aşgabat',
   m_k_hfs: 'Ýarym/netije ulgam kupony'
 });
+
+// kaybeden kuponun yerine hemen yenisi
+Object.assign(window.I18N.tr, { m_note: 'Her 2 günde bir, önümüzdeki 48 saatin maçlarından kuponlar hazırlanır: banko, sürpriz (toplam oran 20+), sistem, yüksek oran, İY/MS ve skor kuponu. Yayınlanan kupon değiştirilmez; bir kupon kaybederse yerine hemen yenisi yayınlanır, kaybeden kupon sonuçlananlar arasında kalır.' });
+Object.assign(window.I18N.ru, { m_note: 'Каждые 2 дня из матчей ближайших 48 часов составляются купоны: надёжный, сюрприз (коэф. 20+), системный, высокий коэффициент, тайм/матч и точный счёт. Опубликованный купон не меняется; если купон проиграл, сразу публикуется новый, а проигравший остаётся среди завершённых.' });
+Object.assign(window.I18N.tk, { m_note: 'Her 2 günden, golaýdaky 48 sagadyň oýunlaryndan kuponlar taýýarlanýar: ynamly, garaşylmadyk (20+), ulgam, ýokary koeffisiýent, ýarym/netije we hasap kupony. Çap edilen kupon üýtgedilmeýär; kupon utulsa ýerine derrew täzesi çap edilýär, utulan kupon netijelenenleriň arasynda galýar.' });

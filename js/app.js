@@ -317,7 +317,8 @@
   // guncel banko kupon kaybettiyse yerine hemen yedek kupon (veri betigi bir sonraki guncellemede resmilestirir)
   const nextC = () => {
     const c0 = MOLLA.coupons[0], nx = MOLLA.next;
-    if (!c0 || !nx || !(nx.picks || []).length || !c0.picks.some(pk => pkOk(pk) === false)) return null;
+    // banko bos (sonuclanip kaldirildi) ya da tutmayan maci var: sunucu yenisini kurana kadar yedek kupon gosterilir
+    if (!c0 || !nx || !(nx.picks || []).length || !(!(c0.picks || []).length || c0.picks.some(pk => pkOk(pk) === false))) return null;
     if (!nx.picks.every(pk => MATCH[pk.id] && future(MATCH[pk.id]))) return null;
     return { date: 'next', nx: 1, picks: nx.picks };
   };
@@ -373,7 +374,7 @@
   }
   function tipCoupon() {
     const c = nextC() || MOLLA.coupons[0];
-    if (!c) return '';
+    if (!c || !(c.picks || []).length) return '';
     const tot = c.picks.reduce((p, x) => p * x.o, 1), w = weekStats(0);
     return `<div class="card tipc"><div class="tipc-h">${shareBtn('share-molla', `data-cdate="${c.date}"`)}<b>${c.nx ? '🔄 ' + t('m_next_title') : '★ ' + t('tipc_title')}</b><small>${fmt(t('tipc_sub'), { n: c.picks.length })} · ${cRange(c)}</small></div>
       ${c.picks.map(x => molRow(x)).join('')}

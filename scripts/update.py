@@ -1298,12 +1298,35 @@ VOTE_AGENTS = AGENTS[:4]
 apf_preds = {}
 AG_KEYS = ["1", "X", "2", "1X", "12", "X2", "O1.5", "U1.5", "O2.5", "U2.5", "O3.5", "U3.5", "KGV", "KGY"]
 # kupon turleri: oran araligi, olasilik ajanlarinin onay esigi, deger ajaninin en dusuk beklenen getirisi
+DC_KEYS = ("1X", "12", "X2")
 AG_TYPES = {
-    "main": {"lo": 1.15, "hi": 1.62, "need": lambda o: 0.62, "ev": -0.08},
+    # banko: cifte sans yok (surekli cifte sans gercekci degil); MS 1/0/2, karsilikli gol ve alt/ust karisik
+    "main": {"lo": 1.15, "hi": 1.62, "need": lambda o: 0.62, "ev": -0.08, "keys": [k for k in AG_KEYS if k not in DC_KEYS]},
     "hi": {"lo": 1.80, "hi": 4.50, "need": lambda o: max(0.30, 0.90 / o), "ev": -0.02},
     "sys": {"lo": 1.45, "hi": 2.40, "need": lambda o: 0.50, "ev": -0.05},
     "big": {"lo": 1.60, "hi": 4.00, "need": lambda o: max(0.30, 0.85 / o), "ev": -0.03},
 }
+
+
+def mk_family(k):
+    """Pazar ailesi: banko kuponda ayni aileden en fazla yarisi olabilir (karisik kupon)."""
+    return "ms" if k in ("1", "X", "2") else "dc" if k in DC_KEYS else "kg" if k[:2] == "KG" else "ou"
+
+
+def mix_pick(rows, n, key_of):
+    """rows (en guclu basta) icinden en fazla n tane; her pazar ailesinden en fazla ceil(n/2).
+    Yeterli cesitlilik yoksa kalan yerler siradaki en guclu secimlerle doldurulur."""
+    cap, out, cnt, rest = (n + 1) // 2, [], defaultdict(int), []
+    for r in rows:
+        if len(out) >= n:
+            break
+        f = mk_family(key_of(r))
+        if cnt[f] < cap:
+            out.append(r)
+            cnt[f] += 1
+        else:
+            rest.append(r)
+    return out + rest[:max(0, n - len(out))]
 
 
 def _pvec(p):
@@ -1700,7 +1723,7 @@ def own_coupons(pool, base, types=("main", "hi", "sys", "big"), avoid=None):
                 elif a not in pv:
                     continue
                 best = None
-                for k in AG_KEYS:
+                for k in cfg.get("keys", AG_KEYS):
                     o = m["o"].get(k)
                     if not o or not cfg["lo"] <= o <= cfg["hi"] or not wins(k, *scs[m["id"]][a]):
                         continue
@@ -1718,7 +1741,7 @@ def own_coupons(pool, base, types=("main", "hi", "sys", "big"), avoid=None):
                     c.append(best + (m,))
             c.sort(key=lambda x: -x[0])
             if typ == "main":
-                sel = c[:5]
+                sel = mix_pick(c, 5, lambda x: x[2])
             elif typ == "sys":
                 sel = c[:MOLLA_SYS[1]] if len(c) >= MOLLA_SYS[0] + 1 else []
             else:
@@ -1741,7 +1764,13 @@ def own_coupons(pool, base, types=("main", "hi", "sys", "big"), avoid=None):
 # ---- Devre ve skor kuponlari: ajanlarin ortak karariyla (ilk yari sonucu, ikinci yari sonucu, mac skoru) ----
 XK_TYPES = ("hf", "sk", "hfs")        # ilk yari / mac sonucu (IY/MS), mac skoru ve IY/MS sistem kuponu
 XK_ALL = ("iy", "y2", "hf", "sk", "hfs")  # sonuclandirma: eski (ayri ilk yari / ikinci yari) kuponlar da
-XK_N = {"hf": 3, "sk": 3, "hfs": 8}     # her kupondaki mac sayisi
+XK_N = {"hf": 3, "sk": 2, "hfs": 8}     # her kupondaki mac sayisi (skor kuponu 2 mac: 3'lu skor kuponu neredeyse hic tutmaz)
+XK_ALT = {"hf": 1, "hfs": 3}            # IY/MS kuponlarinda en az bu kadar "1/1 - 2/2 disi" secim (X/1, X/X, X/2 ...)
+# Skor kuponu: gecmis tahmin arsivinde (646 mac) olculen isabet. Model "once en olasi sonuc" kurali yuzunden
+# denk maclarda 1-1'i hic secmiyor, favori maclarda 1-0'a takiliyordu:
+#   denk mac (favori < %45)  -> 1-1 %12.4 (model skoru %7.4)
+#   favori >= %55            -> 2-0 / 0-2 %17-20 (1-0 %6.6)
+SK_RATE = {"fav": 0.18, "draw": 0.124, "chain": 0.11}
 HFS_K = 5                               # IY/MS sistem kuponu: 8 macin en az 5'i (5'li kolonlar, 56 kolon)
 XK_NEED = 0.30                          # IY/MS secenegi icin bir ajanin onay esigi
 XK_HF_MIN = 0.12                        # IY/MS kuponuna girecek secenegin en dusuk ortak olasiligi
@@ -1781,10 +1810,24 @@ def _score_mat(lh, la):
     return [[v / tot for v in r] for r in mat]
 
 
-def extra_coupons(pool, base):
+def sk_choice(cm, chain, p1, p2):
+    """Skor kuponu icin skor: arsivde daha isabetli cikan kurala gore (SK_RATE). Doner: (skor, kural)."""
+    fav = max(p1, p2)
+    if fav < 0.45:
+        return (1, 1), "draw"
+    if p1 >= 0.55:
+        return (2, 0), "fav"
+    if p2 >= 0.55:
+        return (0, 2), "fav"
+    return tuple(chain), "chain"
+
+
+def extra_coupons(pool, base, taken=None):
     """IY/MS ve mac skoru kuponlari. Her ajan kendi gol beklentisinden IY/MS ve skor olasiligi uretir;
     piyasa ajani IY/MS icin Nesine orani varsa onu kullanir. Ortak olasilik agirlikli ortalamadir;
-    secim, en cok ajanin onayladigi (sonra ortak olasiligi en yuksek) maclardan kurulur."""
+    secim, en cok ajanin onayladigi (sonra ortak olasiligi en yuksek) maclardan kurulur.
+    taken: {mac: [diger kuponlardaki secimler]} - skor kuponu bu secimlerle celisen skoru secmez."""
+    taken = taken or {}
     cand = {x: [] for x in XK_TYPES}
     for m in pool:
         lg = LGMAP.get(m["lg"]) or {}
@@ -1834,10 +1877,16 @@ def extra_coupons(pool, base):
             cand["hf"].append((best[0], dict(base(m), k=best[1], o=round(best[2], 2), p=round(best[3], 3),
                                             sc=m["p"]["score"], v=best[4], ag=best[5],
                                             os="Nesine" if hf_real else "model")))
-        # mac skoru: ortak skor matrisinin en olasi skoru; onay = kendi en olasi skoru ayni olan ajanlar
+        # mac skoru: arsivde daha isabetli cikan kurala gore secilen skor (sk_choice); onay = o skoru en olasi
+        # (ya da ilk ikide) goren ajanlar. Diger kuponlardaki secimlerle (PINS / taken) celisen skor secilmez.
         mats = {a: _score_mat(*lam[a]) for a in ags}
         cm = [[sum(W[a] * mats[a][i][j] for a in ags) / tw for j in range(6)] for i in range(6)]
-        ci, cj = m["p"]["score"]                     # skor kuponu: Analiz365'in tahmini skoru
+        p1_ = sum(cm[i][j] for i in range(6) for j in range(6) if i > j)
+        p2_ = sum(cm[i][j] for i in range(6) for j in range(6) if i < j)
+        (ci, cj), rule = sk_choice(cm, m["p"]["score"], p1_, p2_)
+        keys_ = list(taken.get(m["id"], [])) + [k_ for t_, k_ in PINS.get(m["id"], []) if t_ == "k"]
+        if any(not wins_x(k_, {"hs": ci, "as": cj}) for k_ in keys_ if k_[:2] not in ("HF", "IY", "2Y")):
+            (ci, cj), rule = tuple(m["p"]["score"]), "chain"     # diger kuponla celisirse modelin skoru
         if ci > 5 or cj > 5:
             continue
         cons = cm[ci][cj]
@@ -1846,24 +1895,61 @@ def extra_coupons(pool, base):
             if a not in mats:
                 row.append(None)
                 continue
-            ai, aj = consistent_score(mats[a])[0]
-            row.append([round(mats[a][ci][cj], 3), int((ai, aj) == (ci, cj))])
+            top2 = sorted(((mats[a][i][j], (i, j)) for i in range(6) for j in range(6)), reverse=True)[:2]
+            row.append([round(mats[a][ci][cj], 3), int((ci, cj) in [x[1] for x in top2])])
         o = odd(cons)
         row.append([round(cons * o - 1, 3), int(not risky)])
         v = sum(x[1] for x in row if x)
-        cand["sk"].append(((v, cons + bonus), dict(base(m), k=f"S{ci}-{cj}", o=o, p=round(cons, 3),
-                                                    sc=[ci, cj], v=v, ag=row, os="model")))
+        est = 0.5 * cons + 0.5 * SK_RATE[rule]          # beklenen isabet: model + arsiv olcumu
+        cand["sk"].append(((est + bonus, v), dict(base(m), k=f"S{ci}-{cj}", o=o, p=round(cons, 3),
+                                                   sc=[ci, cj], v=v, ag=row, os="model")))
+    def hf_mix(rows, n, alt):
+        """IY/MS: siradaki en guclu secimler, ama en az `alt` tanesi 1/1 - 2/2 disi (X/1, X/X, X/2, 1/X ...).
+        Favori maclarda 1/1 hep en olasi cikar; cesitlilik icin ilk yarisi berabere bitmesi beklenen maclar da girer."""
+        fav = lambda x: x[1]["k"] in ("HF1/1", "HF2/2")
+        alts = [x for x in rows if not fav(x)][:alt]
+        rest = [x for x in rows if x not in alts][:n - len(alts)]
+        return alts + rest
+
     out = {}
-    for typ in ("hf", "sk"):
-        c = sorted(cand[typ], key=lambda x: (-x[0][0], -x[0][1]))[:XK_N[typ]]
-        if len(c) >= 2:
-            out[typ] = {"picks": sorted((x[1] for x in c), key=lambda r: r["d"])}
-    # IY/MS sistem kuponu: ajanlarin en cok onayladigi 8 IY/MS secimi; 5'li tum kombinasyonlar ayri kolondur,
-    # en az 5 mac tutarsa kazandirir. Tam 8 uygun mac yoksa kurulmaz (sistem sekli sabit 5/8).
-    c = sorted(cand["hf"], key=lambda x: (-x[0][0], -x[0][1]))[:XK_N["hfs"]]
+    hf_rows = sorted(cand["hf"], key=lambda x: (-x[0][0], -x[0][1]))
+    c = hf_mix(hf_rows, XK_N["hf"], XK_ALT["hf"])
+    if len(c) >= 2:
+        out["hf"] = {"picks": sorted((x[1] for x in c), key=lambda r: r["d"])}
+    c = sorted(cand["sk"], key=lambda x: (-x[0][0], -x[0][1]))[:XK_N["sk"]]
+    if len(c) >= 2:
+        out["sk"] = {"picks": sorted((x[1] for x in c), key=lambda r: r["d"])}
+    # IY/MS sistem kuponu: ajanlarin en cok onayladigi 8 IY/MS secimi (en az 3'u 1/1 - 2/2 disi); 5'li tum
+    # kombinasyonlar ayri kolondur, en az 5 mac tutarsa kazandirir. Tam 8 uygun mac yoksa kurulmaz (5/8 sabit).
+    c = hf_mix(hf_rows, XK_N["hfs"], XK_ALT["hfs"])
     if len(c) == XK_N["hfs"]:
         out["hfs"] = {"k": HFS_K, "picks": sorted((x[1] for x in c), key=lambda r: r["d"])}
     return out
+
+
+def coupon_lost(v, t):
+    """Kupon kaybetti mi? Liste ya da {"k", "picks"}; sistem kuponunda (sys / hfs) kural: kayip > N - k."""
+    pk = v if isinstance(v, list) else (v or {}).get("picks", [])
+    if not pk:
+        return False
+    no = sum(1 for x in pk if x.get("ok") is False)
+    if t in ("sys", "hfs"):
+        return no > len(pk) - ((v or {}).get("k") or MOLLA_SYS[0])
+    return no > 0
+
+
+def coupon_done(v, t):
+    """Kupon sonuclandi mi (kaybetti ya da tum maclari bitti)?"""
+    pk = v if isinstance(v, list) else (v or {}).get("picks", [])
+    return bool(pk) and (coupon_lost(v, t) or all("ok" in x for x in pk))
+
+
+def taken_of(c):
+    """Bir donemin ana kuponlarindaki secimler: {mac: [secimler]} (skor kuponu bunlarla celismez)."""
+    t = defaultdict(list)
+    for x in list(c.get("picks") or []) + (c.get("hi") or {}).get("picks", []) +             (c.get("sys") or {}).get("picks", []) + (c.get("big") or {}).get("picks", []):
+        t[x["id"]].append(x["k"])
+    return t
 
 
 def coupon_picks(c):
@@ -1885,7 +1971,7 @@ def agent_panel(pool, typ, avoid=()):
         if m["id"] in avoid:
             continue
         pv, best = agent_probs(m), None
-        for k in AG_KEYS:
+        for k in cfg.get("keys", AG_KEYS):
             o = m["o"].get(k)
             if not o or not cfg["lo"] <= o <= cfg["hi"] or not wins(k, *m["p"]["score"]):
                 continue
@@ -1902,8 +1988,9 @@ def agent_panel(pool, typ, avoid=()):
 def molla(matches, done_by_id, src_team, use):
     state = cache_read(MOLLA) or {"coupons": {}}
     today = (NOW + timedelta(hours=5)).strftime("%Y-%m-%d")   # Askabat gunu
-    # 1) bitmis maclari sonuclandir
-    for c in state["coupons"].values():
+    # 1) bitmis maclari sonuclandir (kaybedip arsive tasinan kuponlar dahil)
+    state.setdefault("arch", {})
+    for c in list(state["coupons"].values()) + [e for es in state["arch"].values() for e in es]:
         for pk in coupon_picks(c):
             e = done_by_id.get(pk["id"])
             if e and "res" not in pk:
@@ -1928,12 +2015,7 @@ def molla(matches, done_by_id, src_team, use):
     # guncel kuponda tutmayan mac varsa iki gun beklenmeden yeni kupon yayinlanir
     # (sistem kuponu haric: 3/5 kurali tek kayibi normal sayar; bugunun kuponu zaten varsa bir daha uretilmez)
     # ayni gun icinde de: kaybeden kuponun yerine hemen yenisi gelir (anahtar: gun + harf, or. 2026-11-17b)
-    busted = False
-    if keys:
-        lastc = state["coupons"][keys[-1]]
-        if any(pk.get("ok") is False for pk in lastc["picks"] + (lastc.get("hi") or {}).get("picks", [])):
-            busted = True
-            print("   MollaMyrat: guncel kuponda tutmayan mac var, yeni kupon yayinlaniyor", flush=True)
+    busted = False          # kaybeden kuponlar artik donem icinde yerinde yenilenir (asagida 2-)
     due = not keys or busted or (day0 - datetime.strptime(keys[-1][:10], "%Y-%m-%d")).days >= MOLLA_DAYS
     if keys and ("ac" not in state["coupons"][keys[-1]] or state["coupons"][keys[-1]].get("cv") != 2):
         due = True                                   # tutarli karar zincirine gecis: guncel kupon bir kez yeniden kurulur
@@ -2015,10 +2097,11 @@ def molla(matches, done_by_id, src_team, use):
     def banko(pool, avoid=()):
         """Banko: en az 4 ajanin (yoksa 3) onayladigi dusuk oranli secimler."""
         pan = agent_panel(pool, "main", avoid)
-        got = [x for x in pan if x[0] >= 4][:6]
+        kf = lambda x: x[2]
+        got = mix_pick([x for x in pan if x[0] >= 4], 6, kf)
         if len(got) < 3:
-            got = [x for x in pan if x[0] >= 3][:6]
-        return got if len(got) >= 3 else pan[:3]
+            got = mix_pick([x for x in pan if x[0] >= 3], 6, kf)
+        return got if len(got) >= 3 else mix_pick(pan, 3, kf)
 
     def big_coupon(pool, avoid=()):
         """Yuksek oran: analizcilerin en cok onayladigi orta-yuksek oranli secimler; toplam oran en az MOLLA_BIG."""
@@ -2090,7 +2173,7 @@ def molla(matches, done_by_id, src_team, use):
                 cpn["big"] = {"picks": [arec(x) for x in by_date(big)]}
             if len(sy) >= need + 1:
                 cpn["sys"] = {"k": need, "picks": [arec(x) for x in by_date(sy)]}
-            cpn.update(extra_coupons(pool, base))
+            cpn.update(extra_coupons(pool, base, taken_of(cpn)))
             cpn["xk"] = 2
             cpn["cv"] = 2
             key = today
@@ -2101,6 +2184,55 @@ def molla(matches, done_by_id, src_team, use):
             state["coupons"][key] = cpn
             print(f"   MollaMyrat ajan heyeti: {len(pool)} mac tarandi -> banko {len(picks)}, "
                   f"surpriz {len(hi or [])}, sistem {len(sy) if len(sy) >= need + 1 else 0}", flush=True)
+    # 2-) kaybeden kupon: yerine hemen yenisi. Kaybeden kupon arsive (state["arch"]) tasinir ve guncel donemden
+    #     cikarilir; asagidaki doldurma adimlari (2a-2c) bos kalan turu ayni calismada yeniden kurar.
+    keys = sorted(state["coupons"])
+    if keys:
+        ck = keys[-1]
+        cur = state["coupons"][ck]
+        lost_j = [t for t in ("picks", "hi", "sys", "big") + XK_TYPES
+                  if coupon_lost(cur.get(t), t) and (t != "picks" or cur.get("ac"))]
+        lost_a = [(a_, t) for a_, o_ in (cur.get("ac") or {}).items() for t in ("main", "hi", "sys", "big")
+                  if coupon_lost(o_.get(t), t)]
+        if lost_j or lost_a:
+            ent = {"until": cur.get("until"), "picks": [], "ac": {}}
+            for t in lost_j:
+                if t == "picks":
+                    ent["picks"], cur["picks"] = cur["picks"], []
+                else:
+                    ent[t] = cur.pop(t)
+            for a_, t in lost_a:
+                ent["ac"].setdefault(a_, {})[t] = cur["ac"][a_][t]
+                cur["ac"][a_][t] = {"k": MOLLA_SYS[0], "picks": []} if t == "sys" else []
+            state["arch"].setdefault(ck, []).append(ent)
+            print(f"   MollaMyrat: kaybeden kupon yenileniyor: {lost_j} {lost_a}", flush=True)
+        # analizcilerin bos kalan kendi kuponlari (kaybedip arsive giden ya da sonuclanip silinen): ayni tur yeniden,
+        # analizcinin bekleyen kuponlarindaki maclar haric
+        empty_ = lambda o_, t: not ((o_.get("sys") or {}).get("picks") if t == "sys" else o_.get(t))
+        fill_a = [(a_, t) for a_, o_ in (cur.get("ac") or {}).items() for t in ("main", "hi", "sys", "big") if empty_(o_, t)]
+        if fill_a:
+            pool_ = window(ck)
+            for t in sorted({t for _, t in fill_a}):
+                av = {a_: {x["id"] for k_ in ("main", "hi", "big") for x in o_.get(k_, [])} |
+                      {x["id"] for x in (o_.get("sys") or {}).get("picks", [])}
+                      for a_, o_ in cur["ac"].items()}
+                ob = own_coupons(pool_, base, (t,), av)
+                for a_, t2 in fill_a:
+                    if t2 == t and not empty_({t: (ob.get(a_) or {}).get(t)}, t):
+                        cur["ac"][a_][t] = ob[a_][t]
+        # banko bossa (kaybetti ya da sonuclanan kupon silindi): yedek kupon gecerliyse o, yoksa yeni banko
+        if cur.get("ac") is not None and not cur.get("picks"):
+            nx_ = (state.get("next") or {}).get("picks", [])
+            res_ = [r for r in nx_ if pdate(r["d"]) > NOW + timedelta(minutes=10)]
+            if len(res_) >= 3 and len(res_) == len(nx_):
+                cur["picks"] = res_
+            else:
+                avoid_ = set(taken_of(cur))
+                nb = banko(window(today), avoid_)
+                if len(nb) >= 3:
+                    cur["picks"] = [arec(x) for x in by_date(nb)]
+            if cur.get("picks"):
+                print(f"   MollaMyrat: yeni banko kupon yayinlandi ({len(cur['picks'])} mac)", flush=True)
     # 2a) yuksek oran kuponu (35+): donemde yoksa bir kez eklenir; ortak ve analizciler daha once kullandiklari
     #     maclari tekrar kullanmaz. Kurulan kupon sonradan degismez.
     keys = sorted(state["coupons"])
@@ -2114,7 +2246,8 @@ def molla(matches, done_by_id, src_team, use):
               for a_, o_ in cur["ac"].items()}
         ob = own_coupons(pool, base, ("big",), av)
         for a_, o_ in cur["ac"].items():
-            o_["big"] = (ob.get(a_) or {}).get("big", [])
+            if not o_.get("big"):                    # bekleyen kendi kuponu korunur; yalnizca bos olan kurulur
+                o_["big"] = (ob.get(a_) or {}).get("big", [])
         print(f"   MollaMyrat: yuksek oran kuponu eklendi (ortak {len(cur['big']['picks'])} mac, "
               f"analizciler {[len(o_['big']) for o_ in cur['ac'].values()]})", flush=True)
     # 2b) guncel kuponun yaninda yuksek oranli ve sistem kuponu (bir kez uretilir, sonra degismez)
@@ -2136,7 +2269,7 @@ def molla(matches, done_by_id, src_team, use):
     keys = sorted(state["coupons"])
     if keys and any(not (state["coupons"][keys[-1]].get(x) or {}).get("picks") for x in XK_TYPES)             and state["coupons"][keys[-1]].get("xk", 0) >= 2:
         cur = state["coupons"][keys[-1]]
-        ex = extra_coupons(window(keys[-1]), base)
+        ex = extra_coupons(window(keys[-1]), base, taken_of(cur))
         for x in XK_TYPES:
             if not (cur.get(x) or {}).get("picks") and x in ex:
                 cur[x] = ex[x]
@@ -2159,6 +2292,7 @@ def molla(matches, done_by_id, src_team, use):
     # 3) eski kayitlari at, kaydet
     keep = (NOW - timedelta(days=400)).strftime("%Y-%m-%d")
     state["coupons"] = {k: v for k, v in state["coupons"].items() if k >= keep}
+    state["arch"] = {k: v for k, v in state.get("arch", {}).items() if k in state["coupons"]}
     cache_write(MOLLA, state)
     show = keep
     # eski donemlerde analizcilerin kendi kuponlari ve raporlari yayinlanmaz (dosya sismesin); son 4 donem tam
@@ -2176,6 +2310,11 @@ def molla(matches, done_by_id, src_team, use):
             v.pop("ac", None)
             v.pop("panel", None)
         out.append(v)
+        for j, e in enumerate(state["arch"].get(k, [])):   # kaybedip yenilenen kuponlar donemin hemen ardindan
+            e = dict(e, date=f"{k}~{j + 1}", arch=1)
+            if i >= 4:
+                e.pop("ac", None)
+            out.append(e)
     for c in out:
         reps = [x for rows in ((c.get("panel") or {}).get("rep") or {}).values() for x in rows]
         for x in coupon_picks(c) + c.get("scores", []) + reps:

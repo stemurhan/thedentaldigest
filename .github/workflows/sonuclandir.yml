@@ -52,6 +52,14 @@ jobs:
             if [ "$st" = "completed" ] && [ "$age" -ge 6900 ]; then
               echo "bulten $((age / 60)) dakikadir yenilenmedi: guncelleme baslatiliyor"
               gh workflow run guncelle.yml --ref main || true
+            else
+              # Analiz kuponlarinda biten mac kuponu kaybettirdiyse: 2 saati beklemeden guncelle
+              # (guncelleme kaybeden kuponun yerine hemen yenisini kurar). Ust uste tetiklememek icin 25 dk ara.
+              rc=0; python scripts/watch.py || rc=$?
+              if [ "$rc" = "3" ] && [ "$st" = "completed" ] && [ "$age" -ge 1500 ]; then
+                echo "kaybeden kupon: yenisi icin bulten guncellemesi baslatiliyor"
+                gh workflow run guncelle.yml --ref main || true
+              fi
             fi
             [ $(( $(date +%s) - start )) -ge 6900 ] && break       # ~2 saat
             sleep 480
