@@ -346,7 +346,7 @@ def apf_get(path, ttl=3 * 3600):
 # Anahtar yoksa ya da veri gelmezse site son kadrolardan cikarilan eksik tahminiyle devam eder.
 APF_INJ_HOURS = 60                     # bu kadar saat icindeki maclar
 APF_INJ_MAX = 120                      # en fazla mac (6 paket); yakin ve ust lig maclari once
-APF_STAT = {"n": 0, "err": ""}
+APF_STAT = {"n": 0, "err": "", "fx": 0, "pick": 0, "ok": 0}
 
 
 def load_apf_absences(upcoming):
@@ -355,12 +355,16 @@ def load_apf_absences(upcoming):
     if not APF_KEY:
         APF_STAT["err"] = "API_FOOTBALL_KEY tanimli degil"
         return out
-    want = [m for m in upcoming if NOW - timedelta(hours=1) <= m["dt"] <= NOW + timedelta(hours=APF_INJ_HOURS)]
+    # ucretsiz plan yalnizca dun / bugun / yarin tarihlerine izin verir: daha ilerisi sonraki gunlerin
+    # guncellemelerinde alinir (analiz zaten 2 saatte bir yenilenir)
+    last_day = (NOW + timedelta(days=1)).strftime("%Y-%m-%d")
+    want = [m for m in upcoming if NOW - timedelta(hours=1) <= m["dt"] <= NOW + timedelta(hours=APF_INJ_HOURS)
+            and m["dt"].strftime("%Y-%m-%d") <= last_day]
     rows = []
     for day in sorted({m["dt"].strftime("%Y-%m-%d") for m in want}):
         r = apf_get(f"fixtures?date={day}", ttl=6 * 3600) or {}
         if r.get("errors"):
-            APF_STAT["err"] = str(r["errors"])[:200]
+            APF_STAT["err"] = "fixtures " + day + ": " + str(r["errors"])[:200]
         for it in r.get("response") or []:
             f_, tm = it.get("fixture") or {}, it.get("teams") or {}
             h_, a_ = tm.get("home") or {}, tm.get("away") or {}
@@ -379,6 +383,7 @@ def load_apf_absences(upcoming):
                 best = (sc, fid, hid, aid)
         if best:
             pick[m["id"]] = (best[1], best[2], best[3], LGMAP.get(m["lg"], {}).get("tier", 2), m["dt"])
+    APF_STAT["fx"], APF_STAT["pick"] = len(rows), len(pick)
     order = sorted(pick, key=lambda i: (pick[i][3], pick[i][4]))[:APF_INJ_MAX]
     fids = [pick[i][0] for i in order]
     got, inj = set(), defaultdict(list)
@@ -386,8 +391,7 @@ def load_apf_absences(upcoming):
         part = fids[i:i + 20]
         r = apf_get("injuries?ids=" + "-".join(str(x) for x in part), ttl=2.5 * 3600)
         if not r or r.get("errors"):
-            if r and r.get("errors"):
-                APF_STAT["err"] = str(r["errors"])[:200]
+            APF_STAT["err"] = "injuries: " + (str(r["errors"])[:200] if r and r.get("errors") else "yanit yok")
             continue
         got |= set(part)
         for x in r.get("response") or []:
@@ -407,7 +411,7 @@ def load_apf_absences(upcoming):
             w = "doubt" if "question" in typ else "sus" if re.search(r"suspen|red card|yellow card|card", rs, re.I) else "inj"
             side[s_].append({"n": nm, "w": w, "r": rs[:40]})
         out[mid] = side
-    APF_STAT["n"] = len(out)
+    APF_STAT["n"], APF_STAT["ok"] = len(out), len(got)
     return out
 
 
@@ -3179,7 +3183,7 @@ def main():
             "teams": teams, "tables": tables, "matches": matches, "results": results, "bb": bb, "molla": molla_data, "recent": recent, "acc": acc, "accbb": accbb, "since": STATS_FROM,
             "agacc": agacc, "agaccbb": agaccbb, "agents": AGENTS,
             "agbt": agbt, "agw": AG_W,
-            "inj": {"src": "apf" if APF_STAT["n"] else "lineup", "n": APF_STAT["n"], "err": APF_STAT["err"]}}
+            "inj": dict(APF_STAT, src="apf" if APF_STAT["n"] else "lineup")}
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
